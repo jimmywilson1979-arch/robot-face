@@ -79,12 +79,24 @@
     <label class="check" id="sightRow"><input type="checkbox" id="sight"> Start listening when it sees me (needs the camera)</label>
     <div class="row" id="townRow"><label for="town">Home town (for weather and local info)</label><input id="town" type="text" placeholder="Hay-on-Wye"></div>
     <label class="check" id="camRow"><input type="checkbox" id="cam"> Follow me with the front camera</label>
+    <div class="row" id="camTestRow"><label>Camera check</label>
+      <div style="display:flex;gap:12px;align-items:flex-start;flex-wrap:wrap">
+        <div id="camWrap" style="position:relative;width:200px;aspect-ratio:4/3;background:#000;border:1px solid var(--line);border-radius:10px;overflow:hidden;display:none">
+          <video id="camPrev" playsinline muted style="display:block;width:100%;height:100%;object-fit:cover;transform:scaleX(-1)"></video>
+          <canvas id="camBoxes" width="200" height="150" style="position:absolute;inset:0;width:100%;height:100%;transform:scaleX(-1)"></canvas>
+        </div>
+        <div style="flex:1;min-width:180px">
+          <button class="btn" id="camTestBtn" type="button">Test camera</button>
+          <p class="note" id="camInfo" style="margin-top:10px">Shows what the robot sees, with a box on your face.</p>
+        </div>
+      </div>
+    </div>
     <div class="row"><label>Try an expression</label></div>
     <div class="moods" id="moodBtns"></div>
     <div class="actions"><span class="mode" id="modeTag"></span><button class="btn" id="closeSet" type="button">Done</button></div>
   </div>
 </div>
-<video id="cam" playsinline muted></video>
+<video id="camVideo" playsinline muted></video>
 
 <script>
 (() => {
@@ -491,20 +503,21 @@ $('typebox').addEventListener('submit', e => {
 });
 
 // ---------- camera follow (phone mode) ----------
-let camStream = null, camTimer = 0, prevPix = null, detector = null, lastSeen = 0;
+let camStream = null, camTimer = 0, prevPix = null, detector = null, lastSeen = 0, camErr = '', camMode = '', camBox = null, camSeenAt = 0;
 async function startCam() {
   if (camStream || !navigator.mediaDevices) return;
   try {
     camStream = await navigator.mediaDevices.getUserMedia({video:{facingMode:'user', width:320, height:240}, audio:false});
-    const v = $('cam'); v.srcObject = camStream; await v.play();
-    if ('FaceDetector' in window) { try { detector = new FaceDetector({fastMode:true, maxDetectedFaces:1}); } catch (e) { detector = null; } }
+    const v = $('camVideo'); v.srcObject = camStream; await v.play();
+    camErr = ''; camMode = 'motion';
+    if ('FaceDetector' in window) { try { detector = new FaceDetector({fastMode:true, maxDetectedFaces:1}); camMode = 'face'; } catch (e) { detector = null; } }
     const small = document.createElement('canvas'); small.width = 64; small.height = 48;
     const sctx = small.getContext('2d', {willReadFrequently:true});
     camTimer = setInterval(async () => {
       if (!camStream) return;
       let fx = null, fy = null;
       if (detector) {
-        try { const f = await detector.detect(v); if (f[0]) { const b = f[0].boundingBox; fx = (b.x + b.width / 2) / v.videoWidth; fy = (b.y + b.height / 2) / v.videoHeight; } } catch (e) { detector = null; }
+        try { const f = await detector.detect(v); camBox = null; if (f[0]) { const b = f[0].boundingBox; fx = (b.x + b.width / 2) / v.videoWidth; fy = (b.y + b.height / 2) / v.videoHeight; camBox = {x:b.x / v.videoWidth, y:b.y / v.videoHeight, w:b.width / v.videoWidth, h:b.height / v.videoHeight, face:true}; } } catch (e) { detector = null; camMode = 'motion'; }
       }
       if (fx === null) {
         sctx.drawImage(v, 0, 0, 64, 48);
@@ -514,11 +527,13 @@ async function startCam() {
           for (let i = 0; i < px.length; i += 4) {
             if (Math.abs(px[i] - prevPix[i]) + Math.abs(px[i+1] - prevPix[i+1]) > 60) { const p = i / 4; sx += p % 64; sy += (p / 64) | 0; n++; }
           }
-          if (n > 25) { fx = sx / n / 64; fy = sy / n / 48; }
+          camBox = null;
+          if (n > 25) { fx = sx / n / 64; fy = sy / n / 48; camBox = {x:fx - .06, y:fy - .08, w:.12, h:.16, face:false}; }
         }
         prevPix = px;
       }
       if (fx !== null) {
+        camSeenAt = performance.now();
         look = {x: Math.max(-1, Math.min(1, (fx * 2 - 1) * 1.3)), y: Math.max(-1, Math.min(1, (fy * 2 - 1) * 1.1))};
         lookUntil = performance.now() + 1200;
         const nowT = performance.now();
@@ -529,11 +544,45 @@ async function startCam() {
       }
     }, 250);
   } catch (e) {
-    S.cam = false; save(); $('cam').checked = false;
-    caption('', HELP_CAM, 14000);
+    camStream = null;
+    camErr = (e && e.name) || 'Error';
+    if (!testing) { S.cam = false; save(); }
+    caption('', camErr === 'NotAllowedError' ? HELP_CAM
+      : camErr === 'NotReadableError' ? 'The camera is busy in another app. Close the camera or video-call app and try again.'
+      : camErr === 'NotFoundError' ? 'I could not find a front camera on this device.'
+      : 'The camera would not start (' + camErr + ').', 14000);
   }
 }
 function stopCam() { clearInterval(camTimer); if (camStream) camStream.getTracks().forEach(t => t.stop()); camStream = null; prevPix = null; }
+
+// ---------- camera test ----------
+let testing = false, testTimer = 0;
+$('camTestBtn').addEventListener('click', async () => {
+  if (testing) { endCamTest(); return; }
+  testing = true; $('camTestBtn').textContent = 'Stop test';
+  $('camInfo').textContent = 'Starting the camera…';
+  await startCam();
+  if (!camStream) { $('camInfo').textContent = 'Camera failed: ' + camErr + '. ' + (camErr === 'NotAllowedError' ? HELP_CAM : ''); testing = false; $('camTestBtn').textContent = 'Test camera'; return; }
+  $('camWrap').style.display = 'block';
+  const pv = $('camPrev'); pv.srcObject = camStream; pv.play().catch(() => {});
+  const bc = $('camBoxes').getContext('2d');
+  testTimer = setInterval(() => {
+    bc.clearRect(0, 0, 200, 150);
+    const seen = performance.now() - camSeenAt < 600;
+    if (camBox && seen) {
+      bc.strokeStyle = camBox.face ? '#4fd18b' : '#d8b26a'; bc.lineWidth = 3;
+      bc.strokeRect(camBox.x * 200, camBox.y * 150, camBox.w * 200, camBox.h * 150);
+    }
+    $('camInfo').innerHTML = 'Camera: <b style="color:#4fd18b">working</b><br>' +
+      (camMode === 'face' ? 'Tracking: face detection (green box on your face)' : 'Tracking: movement only (gold box where something moves). This device has no built-in face detection.') +
+      '<br>' + (seen ? (camBox && camBox.face ? 'I can see your face.' : 'I can see movement.') : 'Nothing seen right now. Move into view.');
+  }, 150);
+});
+function endCamTest() {
+  testing = false; clearInterval(testTimer); $('camTestBtn').textContent = 'Test camera';
+  $('camWrap').style.display = 'none'; $('camPrev').srcObject = null;
+  if (!S.cam && !S.sight) stopCam();
+}
 
 // ---------- settings sheet ----------
 const COLOURS = ['#dff1ff', '#ffffff', '#9fe7ff', '#f2d18b', '#a8f0c6'];
@@ -564,6 +613,7 @@ function openSheet() {
   $('townRow').style.display = inClaude ? 'none' : '';
   $('sight').checked = S.sight; $('town').value = S.town;
   $('camRow').style.display = inClaude ? 'none' : '';
+  $('camTestRow').style.display = inClaude ? 'none' : '';
   $('apiKey').value = S.apiKey; $('model').value = S.model;
   $('captions').checked = S.captions; $('wake').checked = S.followUp; $('cam').checked = S.cam;
   fillVoiceSelect();
@@ -580,6 +630,7 @@ $('moodBtns').addEventListener('click', e => {
   if (m !== 'asleep' && m !== 'sleepy') lastActivity = performance.now();
 });
 $('closeSet').addEventListener('click', () => {
+  if (testing) endCamTest();
   S.apiKey = $('apiKey').value.trim(); S.model = $('model').value; S.voice = $('voice').value;
   S.captions = $('captions').checked; S.followUp = $('wake').checked; S.sight = $('sight').checked; S.cam = $('cam').checked || S.sight; S.town = $('town').value.trim() || 'Hay-on-Wye';
   save(); $('sheet').classList.remove('show');
