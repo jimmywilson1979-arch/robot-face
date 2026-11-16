@@ -75,7 +75,9 @@
     <div class="row"><label for="voice">Voice</label><select id="voice"></select></div>
     <div class="row"><label>Face colour</label><div class="swatches" id="swatches"></div></div>
     <label class="check"><input type="checkbox" id="captions"> Show captions of what's said</label>
-    <label class="check" id="wakeRow"><input type="checkbox" id="wake"> Always listening (say "Claude, …")</label>
+    <label class="check" id="wakeRow"><input type="checkbox" id="wake"> Keep listening for a follow-up after it answers</label>
+    <label class="check" id="sightRow"><input type="checkbox" id="sight"> Start listening when it sees me (needs the camera)</label>
+    <div class="row" id="townRow"><label for="town">Home town (for weather and local info)</label><input id="town" type="text" placeholder="Hay-on-Wye"></div>
     <label class="check" id="camRow"><input type="checkbox" id="cam"> Follow me with the front camera</label>
     <div class="row"><label>Try an expression</label></div>
     <div class="moods" id="moodBtns"></div>
@@ -88,7 +90,7 @@
 (() => {
 'use strict';
 // ---------- settings ----------
-const DEFAULTS = {apiKey:'', model:'claude-haiku-5-5', voice:'', color:'#dff1ff', captions:true, wake:false, cam:false, user:'James'};
+const DEFAULTS = {apiKey:'', model:'claude-haiku-5-5', voice:'', color:'#dff1ff', captions:true, followUp:true, sight:false, cam:false, user:'James', town:'Hay-on-Wye'};
 let S = {...DEFAULTS};
 try { S = {...DEFAULTS, ...JSON.parse(localStorage.getItem('robotface.settings') || '{}')}; } catch (e) {}
 const save = () => { try { localStorage.setItem('robotface.settings', JSON.stringify(S)); } catch (e) {} };
@@ -310,7 +312,7 @@ function systemPrompt() {
   return `You are Claude, speaking as the voice of ${S.user}'s home robot: a small desk robot whose face is an old phone screen. ` +
     `Personality: a calm, warm, gently witty British butler in the spirit of Jarvis. Polite and helpful, never gushing. Use British English. ` +
     `Your words are spoken aloud, so answer in one to three short sentences of plain speech: no lists, no markdown, no emoji. ` +
-    `If asked for live information you cannot see (weather, news, scores, calendar), say briefly that you are not connected to that yet. ` +
+    (inClaude ? `If asked for live information you cannot see (weather, news, scores), say briefly that you are not connected to that here. ` : `You can search the web for live information such as weather, news, sports scores, opening times and travel; search when needed and give just the answer, briefly, without reading out web addresses. ${S.user}'s home is ${S.town}, UK, so use that for weather and anything local unless told otherwise. You cannot see his calendar or email yet. `) +
     `Begin every reply with exactly one mood tag chosen to suit it: [happy] [thinking] [curious] [surprised] [sad] [sleepy] [neutral]. ` +
     `It is now ${now}.`;
 }
@@ -325,14 +327,28 @@ async function ask(text) {
     reply = res.text;
   } else {
     if (!S.apiKey) throw {friendly:'I need a Claude API key in settings before I can think.'};
-    const r = await fetch('https://api.anthropic.com/v1/messages', {
-      method:'POST',
-      headers:{'content-type':'application/json','x-api-key':S.apiKey,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},
-      body:JSON.stringify({model:S.model, max_tokens:300, system:systemPrompt(), messages:history})
-    });
+    const search = {type:'web_search_20250305', name:'web_search', max_uses:3,
+      user_location:{type:'approximate', city:S.town || 'Hay-on-Wye', region:'Wales', country:'GB', timezone:'Europe/London'}};
+    const call = async (msgs, withSearch) => {
+      const body = {model:S.model, max_tokens:500, system:systemPrompt(), messages:msgs};
+      if (withSearch) body.tools = [search];
+      return fetch('https://api.anthropic.com/v1/messages', {
+        method:'POST',
+        headers:{'content-type':'application/json','x-api-key':S.apiKey,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},
+        body:JSON.stringify(body)
+      });
+    };
+    let msgs = history.slice(), useSearch = S.search !== false;
+    let r = await call(msgs, useSearch);
+    if (!r.ok && useSearch && r.status === 400) { S.search = false; save(); useSearch = false; r = await call(msgs, false); }
     if (!r.ok) { const t = await r.text(); throw {friendly: r.status === 401 ? 'That API key was refused. Check it in settings.' : 'I could not reach Claude just now.', detail:t}; }
-    const j = await r.json();
-    reply = (j.content || []).filter(c => c.type === 'text').map(c => c.text).join(' ');
+    let j = await r.json(), parts = j.content || [];
+    for (let i = 0; i < 2 && j.stop_reason === 'pause_turn'; i++) {
+      msgs = msgs.concat([{role:'assistant', content:j.content}]);
+      r = await call(msgs, useSearch); if (!r.ok) break;
+      j = await r.json(); parts = parts.concat(j.content || []);
+    }
+    reply = parts.filter(c => c.type === 'text').map(c => c.text).join('');
   }
   reply = (reply || '').trim();
   history.push({role:'assistant', content:reply});
@@ -342,11 +358,11 @@ async function ask(text) {
   return {tag: MOODS[tag] ? tag : 'neutral', text: spoken};
 }
 
-let busy = false;
+let busy = false, followUp = false;
 async function handle(text) {
   text = (text || '').trim();
   if (!text || busy) return;
-  busy = true; activity(); stopWake();
+  busy = true; followUp = false; activity(); stopWake();
   caption(text, '', 0);
   thinking = true; setMood('thinking'); setStatus('Thinking…');
   try {
@@ -357,12 +373,14 @@ async function handle(text) {
     await speak(said);
     setMood(tag === 'neutral' || tag === 'thinking' ? 'neutral' : tag, 2500);
     caption(text, said, 7000);
+    followUp = true;
   } catch (e) {
     thinking = false; talking = false;
     const msg = (e && e.friendly) || (e && e.code === 'rate_limited' ? 'I need a short breather. Try again in a moment.' : 'Something went wrong reaching Claude.');
     setMood('sad', 3000); caption(text, msg, 8000); console.warn(e);
   } finally {
-    busy = false; activity(); setStatus(readyText()); startWake();
+    busy = false; activity(); setStatus(readyText());
+    if (followUp && S.followUp && !inClaude && SR && !micBlocked) setTimeout(() => startListen(true), 350);
   }
 }
 
@@ -428,44 +446,37 @@ talkBtn.addEventListener('click', () => {
   }
   if (SR) {
     if (listening && rec) { rec.stop(); return; }
-    stopWake();
-    rec = new SR(); rec.lang = 'en-GB'; rec.interimResults = true; rec.continuous = false;
-    heard = '';
-    rec.onresult = ev => {
-      let fin = '', part = '';
-      for (const r of ev.results) (r.isFinal ? (fin += r[0].transcript) : (part += r[0].transcript));
-      heard = fin || heard; caption(fin + part, '', 0);
-    };
-    rec.onend = () => { setListening(false); rec = null; if (heard.trim()) handle(heard); else { caption('', '', 1); startWake(); } };
-    rec.onerror = ev => { if (ev.error === 'not-allowed') caption('', 'Microphone permission is needed. Allow it in the browser.', 7000); };
-    try { rec.start(); setListening(true); } catch (e) {}
+    startListen(false);
     return;
   }
   caption('', 'Voice input is not available here, so type to me instead.', 6000);
 });
 
-// Always-listening wake word (phone mode)
-let wakeRec = null, wakeWanted = false, waitingForCommand = false;
-const WAKE = /\b(claude|clawed|cloud|clord|claud)\b[,.!?]?\s*/i;
-function startWake() {
-  wakeWanted = S.wake && !!SR && !dictation;
-  if (!wakeWanted || wakeRec || busy || listening) return;
-  wakeRec = new SR(); wakeRec.lang = 'en-GB'; wakeRec.continuous = true; wakeRec.interimResults = false;
-  wakeRec.onresult = ev => {
-    const t = ev.results[ev.results.length - 1][0].transcript.trim();
-    if (waitingForCommand) { waitingForCommand = false; setListening(false); handle(t); return; }
-    const m = t.match(WAKE);
-    if (!m) return;
-    const rest = t.slice(m.index + m[0].length).trim();
-    activity();
-    if (rest.split(/\s+/).length >= 2) handle(rest);
-    else { waitingForCommand = true; setListening(true); setTimeout(() => { if (waitingForCommand) { waitingForCommand = false; setListening(false); } }, 7000); }
+// One listen = one beep. Used by the Talk button, the follow-up after a reply, and "listen when it sees me".
+function startListen(auto) {
+  if (!SR || rec || busy || listening) return;
+  rec = new SR(); rec.lang = 'en-GB'; rec.interimResults = true; rec.continuous = false;
+  heard = '';
+  rec.onresult = ev => {
+    let fin = '', part = '';
+    for (const r of ev.results) (r.isFinal ? (fin += r[0].transcript) : (part += r[0].transcript));
+    heard = fin || heard; caption(fin + part, '', 0);
   };
-  wakeRec.onend = () => { wakeRec = null; if (wakeWanted && !busy && !listening) setTimeout(startWake, 400); };
-  wakeRec.onerror = () => {};
-  try { wakeRec.start(); setStatus('Say "Claude…"'); } catch (e) { wakeRec = null; }
+  rec.onend = () => {
+    setListening(false); rec = null;
+    if (heard.trim()) handle(heard);
+    else { captionEl.classList.remove('show'); capShown = false; setStatus(readyText()); }
+  };
+  rec.onerror = ev => {
+    if (ev.error === 'not-allowed' || ev.error === 'service-not-allowed') { micBlocked = true; caption('', HELP_MIC, 12000); }
+  };
+  try { rec.start(); setListening(true); if (auto) setStatus('Listening… (just talk)'); } catch (e) { rec = null; }
 }
-function stopWake() { if (wakeRec) { const r = wakeRec; wakeRec = null; try { r.abort(); } catch (e) {} } }
+let micBlocked = false;
+const HELP_MIC = 'The microphone is blocked. Tap the icon to the left of the web address, then Permissions, then turn on Microphone, and reload.';
+const HELP_CAM = 'The camera is blocked. Tap the icon to the left of the web address, then Permissions, then turn on Camera, and reload.';
+function startWake() {}
+function stopWake() { if (rec && !listening) { try { rec.abort(); } catch (e) {} rec = null; } }
 
 // ---------- typing ----------
 $('typeBtn').addEventListener('click', () => {
@@ -480,7 +491,7 @@ $('typebox').addEventListener('submit', e => {
 });
 
 // ---------- camera follow (phone mode) ----------
-let camStream = null, camTimer = 0, prevPix = null, detector = null;
+let camStream = null, camTimer = 0, prevPix = null, detector = null, lastSeen = 0;
 async function startCam() {
   if (camStream || !navigator.mediaDevices) return;
   try {
@@ -510,13 +521,16 @@ async function startCam() {
       if (fx !== null) {
         look = {x: Math.max(-1, Math.min(1, (fx * 2 - 1) * 1.3)), y: Math.max(-1, Math.min(1, (fy * 2 - 1) * 1.1))};
         lookUntil = performance.now() + 1200;
+        const nowT = performance.now();
+        if (detector && S.sight && nowT - lastSeen > 30000 && !busy && !listening && !micBlocked) setTimeout(() => startListen(true), 200);
+        if (detector) lastSeen = nowT;
         if (mood === 'asleep' || mood === 'sleepy') { activity(); }
         else if (performance.now() - lastActivity > 20000) lastActivity = performance.now() - 15000;
       }
     }, 250);
   } catch (e) {
     S.cam = false; save(); $('cam').checked = false;
-    caption('', 'I could not open the camera. Allow camera access to let me follow you.', 7000);
+    caption('', HELP_CAM, 14000);
   }
 }
 function stopCam() { clearInterval(camTimer); if (camStream) camStream.getTracks().forEach(t => t.stop()); camStream = null; prevPix = null; }
@@ -536,7 +550,7 @@ function fillVoiceSelect() {
 function readyText() {
   if (inClaude) return sample ? 'Ready' : 'Connecting…';
   if (!S.apiKey) return 'Needs API key';
-  return S.wake && SR ? 'Say "Claude…"' : 'Ready';
+  return 'Ready';
 }
 function openSheet() {
   $('modeNote').textContent = inClaude
@@ -546,9 +560,12 @@ function openSheet() {
   $('keyRow').style.display = inClaude ? 'none' : '';
   $('modelRow').style.display = inClaude ? 'none' : '';
   $('wakeRow').style.display = inClaude || !SR ? 'none' : '';
+  $('sightRow').style.display = inClaude || !SR ? 'none' : '';
+  $('townRow').style.display = inClaude ? 'none' : '';
+  $('sight').checked = S.sight; $('town').value = S.town;
   $('camRow').style.display = inClaude ? 'none' : '';
   $('apiKey').value = S.apiKey; $('model').value = S.model;
-  $('captions').checked = S.captions; $('wake').checked = S.wake; $('cam').checked = S.cam;
+  $('captions').checked = S.captions; $('wake').checked = S.followUp; $('cam').checked = S.cam;
   fillVoiceSelect();
   $('swatches').innerHTML = COLOURS.map(c => `<div class="swatch${c === S.color ? ' on' : ''}" data-c="${c}" style="background:${c}"></div>`).join('');
   $('sheet').classList.add('show'); showBar();
@@ -564,7 +581,7 @@ $('moodBtns').addEventListener('click', e => {
 });
 $('closeSet').addEventListener('click', () => {
   S.apiKey = $('apiKey').value.trim(); S.model = $('model').value; S.voice = $('voice').value;
-  S.captions = $('captions').checked; S.wake = $('wake').checked; S.cam = $('cam').checked;
+  S.captions = $('captions').checked; S.followUp = $('wake').checked; S.sight = $('sight').checked; S.cam = $('cam').checked || S.sight; S.town = $('town').value.trim() || 'Hay-on-Wye';
   save(); $('sheet').classList.remove('show');
   if (S.cam && !inClaude) startCam(); else stopCam();
   stopWake(); startWake(); setStatus(readyText()); showBar();
@@ -598,8 +615,7 @@ $('sheet').addEventListener('click', e => { if (e.target.id === 'sheet') $('clos
     if (!SR) talkBtn.style.display = 'none';
     setStatus(readyText());
     if (!S.apiKey) setTimeout(openSheet, 600);
-    if (S.cam) startCam();
-    startWake();
+    if (S.cam || S.sight) startCam();
   }
   setTimeout(() => { setMood('happy', 1600); }, 500);
 })();

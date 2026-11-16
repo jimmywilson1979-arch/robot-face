@@ -7,7 +7,8 @@ The face of James's home robot: an old Android phone becomes the robot's head, a
 ## What it does
 - Animated face with expressions: happy, listening, thinking, curious, surprised, sad, sleepy, asleep
 - Talk (speech recognition) or type; Claude replies in a calm British-butler voice and the face shows its mood
-- "Claude, …" always-listening option
+- Web search for live info (weather, news, scores), localised to your home town
+- Listens again for a follow-up after each answer, and can start listening when the camera sees you
 - Front camera follow: the eyes track you around the room
 - Gets sleepy when left alone, wakes on a tap or when it sees movement
 
