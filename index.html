@@ -1,0 +1,609 @@
+<!DOCTYPE html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="theme-color" content="#000000">
+<meta name="mobile-web-app-capable" content="yes">
+<title>Claude Robot Face</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600&family=Barlow+Condensed:wght@500;600&display=swap" rel="stylesheet">
+<style>
+  :root{--bg:#0a0c10;--card:#111318;--line:#23262e;--ink:#e9edf3;--quiet:#8b93a1;--gold:#d8b26a;--green:#4fd18b}
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{margin:0;height:100%;background:#000;color:var(--ink);font-family:Barlow,system-ui,sans-serif;overflow:hidden;user-select:none}
+  canvas#face{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none}
+  #caption{position:fixed;left:50%;bottom:80px;transform:translateX(-50%);max-width:min(88vw,720px);text-align:center;
+    font-size:clamp(15px,2.4vw,20px);line-height:1.35;color:#cfd6e0;opacity:0;transition:opacity .4s;pointer-events:none;text-shadow:0 1px 8px #000}
+  #caption .you{color:var(--quiet);display:block;font-size:.85em;margin-bottom:4px}
+  #caption.show{opacity:1}
+  #bar{position:fixed;left:50%;bottom:18px;transform:translateX(-50%);display:flex;gap:10px;align-items:center;transition:opacity .5s,transform .5s}
+  #bar.hide{opacity:0;transform:translate(-50%,20px);pointer-events:none}
+  .btn{display:inline-flex;align-items:center;gap:8px;border:1px solid var(--line);background:rgba(17,19,24,.88);color:var(--ink);
+    border-radius:999px;padding:11px 16px;font:600 15px 'Barlow Condensed',sans-serif;letter-spacing:.04em;text-transform:uppercase;cursor:pointer}
+  .btn svg{width:18px;height:18px}
+  .btn.round{padding:11px}
+  .btn.live{border-color:var(--gold);color:var(--gold);box-shadow:0 0 0 3px rgba(216,178,106,.18)}
+  #typebox{position:fixed;left:50%;bottom:76px;transform:translateX(-50%);width:min(92vw,560px);display:none;gap:8px}
+  #typebox.show{display:flex}
+  #typebox input{flex:1;background:var(--card);border:1px solid var(--line);color:var(--ink);border-radius:12px;padding:12px 14px;font:16px Barlow,sans-serif;outline:none}
+  #typebox input:focus{border-color:var(--gold)}
+  #status{position:fixed;top:12px;left:14px;font:500 13px 'Barlow Condensed',sans-serif;letter-spacing:.06em;color:#5d6572;text-transform:uppercase;transition:opacity .5s}
+  #status.hide{opacity:0}
+  #sheet{position:fixed;inset:0;background:rgba(0,0,0,.7);display:none;align-items:center;justify-content:center;z-index:5}
+  #sheet.show{display:flex}
+  .panel{width:min(94vw,520px);max-height:88vh;overflow:auto;background:var(--bg);border:1px solid var(--line);border-radius:16px;padding:18px 18px 12px}
+  .panel h2{margin:0 0 4px;font:600 22px 'Barlow Condensed',sans-serif;letter-spacing:.03em}
+  .panel p.note{margin:0 0 14px;color:var(--quiet);font-size:14px;line-height:1.4}
+  .row{display:flex;flex-direction:column;gap:6px;margin:0 0 14px}
+  .row label{font:600 13px 'Barlow Condensed',sans-serif;letter-spacing:.06em;text-transform:uppercase;color:var(--quiet)}
+  .row input[type=text],.row input[type=password],.row select{background:var(--card);border:1px solid var(--line);color:var(--ink);border-radius:10px;padding:10px 12px;font:15px Barlow,sans-serif;outline:none;width:100%}
+  .check{display:flex;align-items:center;gap:10px;margin:0 0 12px;font-size:15px}
+  .check input{width:20px;height:20px;accent-color:var(--gold)}
+  .swatches{display:flex;gap:10px}
+  .swatch{width:34px;height:34px;border-radius:50%;border:2px solid transparent;cursor:pointer}
+  .swatch.on{border-color:var(--ink)}
+  .moods{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px}
+  .moods button{border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:8px;padding:6px 10px;font:500 14px Barlow,sans-serif;cursor:pointer}
+  .actions{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-top:6px}
+  .mode{font-size:13px;color:var(--quiet)}
+  .mode b{color:var(--green);font-weight:600}
+  video{display:none}
+</style>
+</head>
+<body>
+<canvas id="face" aria-label="Robot face"></canvas>
+<div id="status">Starting…</div>
+<div id="caption"></div>
+<form id="typebox" autocomplete="off">
+  <input id="typed" type="text" placeholder="Type to Claude…" enterkeyhint="send">
+  <button class="btn" type="submit">Send</button>
+</form>
+<div id="bar">
+  <button class="btn" id="talkBtn" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg><span>Talk</span></button>
+  <button class="btn" id="typeBtn" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="2" y="6" width="20" height="12" rx="2"/><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M7 14h10"/></svg><span>Type</span></button>
+  <button class="btn round" id="setBtn" type="button" aria-label="Settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg></button>
+</div>
+
+<div id="sheet">
+  <div class="panel">
+    <h2>Robot settings</h2>
+    <p class="note" id="modeNote"></p>
+    <div class="row" id="keyRow"><label for="apiKey">Claude API key (phone mode)</label><input id="apiKey" type="password" placeholder="sk-ant-…"></div>
+    <div class="row" id="modelRow"><label for="model">Model</label>
+      <select id="model"><option value="claude-haiku-5-5">Haiku 5.5 (fastest, cheapest)</option><option value="claude-sonnet-5-5">Sonnet 5.5 (smarter)</option></select></div>
+    <div class="row"><label for="voice">Voice</label><select id="voice"></select></div>
+    <div class="row"><label>Face colour</label><div class="swatches" id="swatches"></div></div>
+    <label class="check"><input type="checkbox" id="captions"> Show captions of what's said</label>
+    <label class="check" id="wakeRow"><input type="checkbox" id="wake"> Always listening (say "Claude, …")</label>
+    <label class="check" id="camRow"><input type="checkbox" id="cam"> Follow me with the front camera</label>
+    <div class="row"><label>Try an expression</label></div>
+    <div class="moods" id="moodBtns"></div>
+    <div class="actions"><span class="mode" id="modeTag"></span><button class="btn" id="closeSet" type="button">Done</button></div>
+  </div>
+</div>
+<video id="cam" playsinline muted></video>
+
+<script>
+(() => {
+'use strict';
+// ---------- settings ----------
+const DEFAULTS = {apiKey:'', model:'claude-haiku-5-5', voice:'', color:'#dff1ff', captions:true, wake:false, cam:false, user:'James'};
+let S = {...DEFAULTS};
+try { S = {...DEFAULTS, ...JSON.parse(localStorage.getItem('robotface.settings') || '{}')}; } catch (e) {}
+const save = () => { try { localStorage.setItem('robotface.settings', JSON.stringify(S)); } catch (e) {} };
+
+const $ = id => document.getElementById(id);
+const canvas = $('face'), ctx = canvas.getContext('2d');
+const statusEl = $('status'), captionEl = $('caption'), bar = $('bar');
+
+// ---------- environment ----------
+let inClaude = !!(window.claude && typeof window.claude.use === 'function');
+let sample = null, dictation = null, tts = null;
+const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+const hasSynth = 'speechSynthesis' in window;
+
+// ---------- face model ----------
+const MOODS = {
+  neutral:  {open:1, scale:1,    happy:0, brow:.5, raiseL:0,   raiseR:0,   sad:0, curve:.55, mw:.85, mo:0,   dim:1},
+  happy:    {open:1, scale:1,    happy:1, brow:0,  raiseL:0,   raiseR:0,   sad:0, curve:1,   mw:.95, mo:0,   dim:1},
+  listening:{open:1, scale:1.08, happy:0, brow:.7, raiseL:.6,  raiseR:.6,  sad:0, curve:.35, mw:.7,  mo:0,   dim:1},
+  thinking: {open:1, scale:1,    happy:0, brow:.8, raiseL:.1,  raiseR:.9,  sad:0, curve:.12, mw:.45, mo:0,   dim:1, look:[.55,-.6]},
+  curious:  {open:1, scale:1.12, happy:0, brow:.8, raiseL:1,   raiseR:1,   sad:0, curve:0,   mw:.28, mo:.28, dim:1},
+  surprised:{open:1, scale:1.2,  happy:0, brow:.9, raiseL:1.3, raiseR:1.3, sad:0, curve:0,   mw:.35, mo:.6,  dim:1},
+  sad:      {open:.9,scale:1,    happy:0, brow:.8, raiseL:0,   raiseR:0,   sad:1, curve:-.6, mw:.6,  mo:0,   dim:1, look:[0,.35]},
+  sleepy:   {open:.42,scale:1,   happy:0, brow:.6, raiseL:-.2, raiseR:-.2, sad:0, curve:.35, mw:.7,  mo:0,   dim:.85},
+  asleep:   {open:0, scale:1,    happy:0, brow:0,  raiseL:0,   raiseR:0,   sad:0, curve:.2,  mw:.5,  mo:0,   dim:.35},
+};
+const KEYS = ['open','scale','happy','brow','raiseL','raiseR','sad','curve','mw','mo','dim'];
+let mood = 'neutral', moodUntil = 0, after = 'neutral';
+const cur = {...MOODS.neutral, lx:0, ly:0, cap:0};
+let capShown = false;
+let look = {x:0, y:0}, lookUntil = 0, nextGlance = 0;
+let blink = 0, nextBlink = performance.now() + 2500, blinkStart = 0;
+let talking = false, listening = false, thinking = false;
+let lastActivity = performance.now();
+
+function setMood(m, ms = 0, then = 'neutral') {
+  if (!MOODS[m]) m = 'neutral';
+  mood = m; moodUntil = ms ? performance.now() + ms : 0; after = then;
+}
+function activity() {
+  lastActivity = performance.now();
+  if (mood === 'asleep' || mood === 'sleepy') { setMood('curious', 1400); }
+}
+
+let W = 0, H = 0, DPR = 1;
+function resize() {
+  DPR = Math.min(window.devicePixelRatio || 1, 2);
+  W = window.innerWidth; H = window.innerHeight;
+  canvas.width = W * DPR; canvas.height = H * DPR;
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+}
+window.addEventListener('resize', resize); resize();
+
+let last = performance.now();
+function frame(now) {
+  const dt = Math.min(.1, (now - last) / 1000); last = now;
+  // timers
+  if (moodUntil && now > moodUntil) { moodUntil = 0; mood = after; }
+  const idle = now - lastActivity;
+  if (!talking && !listening && !thinking) {
+    if (idle > 240000 && mood !== 'asleep') setMood('asleep');
+    else if (idle > 90000 && mood === 'neutral') setMood('sleepy');
+  }
+  // blink
+  if (mood !== 'asleep' && now > nextBlink) { blinkStart = now; nextBlink = now + 2200 + Math.random() * 4200; if (Math.random() < .18) nextBlink = now + 260; }
+  const bt = (now - blinkStart) / 150; blink = bt < 1 ? Math.sin(bt * Math.PI) : 0;
+  // gaze
+  const preset = MOODS[mood];
+  let tx = look.x, ty = look.y;
+  if (preset.look) { tx = preset.look[0]; ty = preset.look[1]; }
+  else if (now > lookUntil && now > nextGlance) {
+    nextGlance = now + 1800 + Math.random() * 2600;
+    const big = Math.random() < .25;
+    look = {x:(Math.random() * 2 - 1) * (big ? .8 : .3), y:(Math.random() * 2 - 1) * (big ? .5 : .2)};
+    tx = look.x; ty = look.y;
+  }
+  if (listening) { tx *= .3; ty *= .3; }
+  // ease
+  const k = 1 - Math.exp(-dt * 9);
+  for (const key of KEYS) cur[key] += (preset[key] - cur[key]) * k;
+  const kl = 1 - Math.exp(-dt * 14);
+  cur.lx += (tx - cur.lx) * kl; cur.ly += (ty - cur.ly) * kl;
+  cur.cap += ((capShown || !bar.classList.contains('hide') ? 1 : 0) - cur.cap) * k;
+  let mo = cur.mo;
+  if (talking) mo = .12 + .45 * Math.abs(Math.sin(now / 75 + Math.sin(now / 190) * 2)) * (0.6 + .4 * Math.random());
+  draw(now, mo);
+  requestAnimationFrame(frame);
+}
+
+function draw(now, mo) {
+  ctx.fillStyle = '#000'; ctx.fillRect(0, 0, W, H);
+  const r = Math.min(H * .17, W * .1) * (1 - .2 * cur.cap);
+  const cx = W / 2, cy = H * (.45 - .08 * cur.cap), gap = r * 2.15, ey = cy - r * .35;
+  const col = S.color;
+  ctx.globalAlpha = cur.dim;
+  ctx.lineCap = 'round';
+  for (const side of [-1, 1]) {
+    const ex = cx + side * gap;
+    const rx = r * cur.scale * .92, ry = r * cur.scale;
+    const open = Math.max(0, cur.open * (1 - blink));
+    const eyeA = 1 - cur.happy;
+    // eye
+    if (eyeA > .02) {
+      ctx.save(); ctx.globalAlpha = cur.dim * eyeA;
+      if (open > .06) {
+        // eyelid = clip: only the part of the eye below the lid line is drawn
+        const lidY = ey - ry + (1 - open) * 2 * ry;
+        const pad = r * 1.2, outerX = ex + side * (rx + pad), innerX = ex - side * (rx + pad);
+        const droop = open < .98 || cur.sad > .05 ? ry * .6 * cur.sad : 0;
+        ctx.beginPath();
+        if (open >= .98 && cur.sad <= .05) ctx.rect(ex - rx - pad, ey - ry - pad, (rx + pad) * 2, (ry + pad) * 2);
+        else { ctx.moveTo(innerX, lidY); ctx.lineTo(outerX, lidY + droop); ctx.lineTo(outerX, ey + ry + pad); ctx.lineTo(innerX, ey + ry + pad); ctx.closePath(); }
+        ctx.clip();
+        ctx.shadowColor = col; ctx.shadowBlur = r * .45;
+        ctx.fillStyle = col; ctx.beginPath(); ctx.ellipse(ex, ey, rx, ry, 0, 0, Math.PI * 2); ctx.fill();
+        ctx.shadowBlur = 0;
+        const pr = rx * .42, px = ex + cur.lx * rx * .42, py = ey + cur.ly * ry * .42;
+        ctx.fillStyle = '#000'; ctx.beginPath(); ctx.arc(px, py, pr, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = col; ctx.globalAlpha = cur.dim * eyeA * .9;
+        ctx.beginPath(); ctx.arc(px - pr * .35, py - pr * .4, pr * .22, 0, Math.PI * 2); ctx.fill();
+      } else {
+        ctx.strokeStyle = col; ctx.lineWidth = r * .16; ctx.shadowColor = col; ctx.shadowBlur = r * .3;
+        ctx.beginPath(); ctx.arc(ex, ey - r * .35, r * .62, Math.PI * .22, Math.PI * .78); ctx.stroke();
+      }
+      ctx.restore();
+    }
+    // happy arc eyes
+    if (cur.happy > .02) {
+      ctx.save(); ctx.globalAlpha = cur.dim * cur.happy;
+      ctx.strokeStyle = col; ctx.lineWidth = r * .24; ctx.shadowColor = col; ctx.shadowBlur = r * .4;
+      ctx.beginPath(); ctx.arc(ex, ey + r * .32, r * .7, Math.PI * 1.15, Math.PI * 1.85); ctx.stroke();
+      ctx.restore();
+    }
+    // brows
+    if (cur.brow > .02) {
+      const raise = side < 0 ? cur.raiseL : cur.raiseR;
+      const by = ey - ry - r * .42 - raise * r * .32;
+      const inner = -side;
+      const innerY = by - cur.sad * r * .32, outerY = by + cur.sad * r * .12;
+      const xIn = ex + inner * r * .62, xOut = ex - inner * r * .62;
+      ctx.save(); ctx.globalAlpha = cur.dim * cur.brow * .85;
+      ctx.strokeStyle = col; ctx.lineWidth = r * .1;
+      ctx.beginPath(); ctx.moveTo(xOut, outerY); ctx.quadraticCurveTo(ex, by - r * .2, xIn, innerY); ctx.stroke();
+      ctx.restore();
+    }
+  }
+  // mouth
+  const my = cy + r * 1.45, mw = r * cur.mw, curve = cur.curve * r * .55, open = mo * r * .55;
+  ctx.save(); ctx.globalAlpha = cur.dim;
+  ctx.strokeStyle = col; ctx.fillStyle = col; ctx.shadowColor = col; ctx.shadowBlur = r * .3;
+  if (open > r * .03 && Math.abs(curve) < r * .12 && !talking) {
+    ctx.beginPath(); ctx.ellipse(cx, my + open * .4, Math.max(mw, r * .18) * .75, open * .9, 0, 0, Math.PI * 2); ctx.fill();
+  } else if (open > r * .03) {
+    const w = Math.max(mw, r * .22);
+    ctx.beginPath();
+    ctx.moveTo(cx - w, my);
+    ctx.quadraticCurveTo(cx, my + curve * .4, cx + w, my);
+    ctx.quadraticCurveTo(cx, my + curve + open * 2, cx - w, my);
+    ctx.fill();
+  } else {
+    ctx.lineWidth = r * .13;
+    ctx.beginPath(); ctx.moveTo(cx - mw, my); ctx.quadraticCurveTo(cx, my + curve * 2, cx + mw, my); ctx.stroke();
+  }
+  ctx.restore();
+  // zzz
+  if (mood === 'asleep') {
+    ctx.save(); ctx.fillStyle = col; ctx.font = `600 ${r * .45}px 'Barlow Condensed',sans-serif`;
+    for (let i = 0; i < 3; i++) {
+      const t = ((now / 2600) + i / 3) % 1;
+      ctx.globalAlpha = .45 * Math.sin(t * Math.PI);
+      ctx.fillText('z', cx + gap + r * (.9 + t * .9), ey - r * (.4 + t * 1.6));
+    }
+    ctx.restore();
+  }
+  ctx.globalAlpha = 1;
+}
+requestAnimationFrame(frame);
+
+// ---------- touch: eyes follow finger, tap = pleased ----------
+let downAt = 0;
+canvas.addEventListener('pointermove', e => {
+  if (e.pointerType === 'mouse' || e.buttons) {
+    look = {x: Math.max(-1, Math.min(1, (e.clientX - W / 2) / (W * .35))), y: Math.max(-1, Math.min(1, (e.clientY - H * .42) / (H * .35)))};
+    lookUntil = performance.now() + 1500;
+  }
+});
+canvas.addEventListener('pointerdown', () => { downAt = performance.now(); });
+canvas.addEventListener('pointerup', () => {
+  const wasAsleep = mood === 'asleep' || mood === 'sleepy';
+  activity(); showBar();
+  if (!wasAsleep && performance.now() - downAt < 300 && !talking && !listening && !thinking && barShownFor() > 600) setMood('happy', 1500);
+});
+
+// ---------- controls auto-hide ----------
+let barTimer = 0, barSince = performance.now();
+function showBar() {
+  if (bar.classList.contains('hide')) barSince = performance.now();
+  bar.classList.remove('hide'); statusEl.classList.remove('hide');
+  clearTimeout(barTimer);
+  barTimer = setTimeout(() => { if (!$('typebox').classList.contains('show') && !$('sheet').classList.contains('show') && !listening) { bar.classList.add('hide'); statusEl.classList.add('hide'); } }, 7000);
+}
+const barShownFor = () => performance.now() - barSince;
+showBar();
+
+let capTimer = 0;
+function caption(you, said, hold = 9000) {
+  if (!S.captions && !you) { captionEl.classList.remove('show'); capShown = false; return; }
+  captionEl.innerHTML = said ? esc(said) : (you ? `<span class="you">${esc(you)}</span>` : '');
+  captionEl.classList.add('show'); capShown = true;
+  clearTimeout(capTimer); if (hold) capTimer = setTimeout(() => { captionEl.classList.remove('show'); capShown = false; }, hold);
+}
+const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const setStatus = t => { statusEl.textContent = t; };
+
+// ---------- the brain ----------
+const history = [];
+function systemPrompt() {
+  const now = new Date().toLocaleString('en-GB', {weekday:'long', day:'numeric', month:'long', year:'numeric', hour:'2-digit', minute:'2-digit'});
+  return `You are Claude, speaking as the voice of ${S.user}'s home robot: a small desk robot whose face is an old phone screen. ` +
+    `Personality: a calm, warm, gently witty British butler in the spirit of Jarvis. Polite and helpful, never gushing. Use British English. ` +
+    `Your words are spoken aloud, so answer in one to three short sentences of plain speech: no lists, no markdown, no emoji. ` +
+    `If asked for live information you cannot see (weather, news, scores, calendar), say briefly that you are not connected to that yet. ` +
+    `Begin every reply with exactly one mood tag chosen to suit it: [happy] [thinking] [curious] [surprised] [sad] [sleepy] [neutral]. ` +
+    `It is now ${now}.`;
+}
+async function ask(text) {
+  history.push({role:'user', content:text});
+  while (history.length > 12) history.shift();
+  if (history[0].role !== 'user') history.shift();
+  let reply;
+  if (inClaude && sample) {
+    const convo = history.map(m => (m.role === 'user' ? `${S.user}: ` : 'Robot: ') + m.content).join('\n');
+    const res = await sample(`${systemPrompt()}\n\nConversation so far:\n${convo}\n\nWrite only the robot's next reply, starting with its mood tag.`, {modelTier:'quick', cache:false});
+    reply = res.text;
+  } else {
+    if (!S.apiKey) throw {friendly:'I need a Claude API key in settings before I can think.'};
+    const r = await fetch('https://api.anthropic.com/v1/messages', {
+      method:'POST',
+      headers:{'content-type':'application/json','x-api-key':S.apiKey,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},
+      body:JSON.stringify({model:S.model, max_tokens:300, system:systemPrompt(), messages:history})
+    });
+    if (!r.ok) { const t = await r.text(); throw {friendly: r.status === 401 ? 'That API key was refused. Check it in settings.' : 'I could not reach Claude just now.', detail:t}; }
+    const j = await r.json();
+    reply = (j.content || []).filter(c => c.type === 'text').map(c => c.text).join(' ');
+  }
+  reply = (reply || '').trim();
+  history.push({role:'assistant', content:reply});
+  const m = reply.match(/^\s*\[(\w+)\]\s*/);
+  const tag = m ? m[1].toLowerCase() : 'neutral';
+  const spoken = reply.replace(/^\s*\[(\w+)\]\s*/, '').replace(/\[(\w+)\]/g, '').replace(/[*_#`]/g, '').trim();
+  return {tag: MOODS[tag] ? tag : 'neutral', text: spoken};
+}
+
+let busy = false;
+async function handle(text) {
+  text = (text || '').trim();
+  if (!text || busy) return;
+  busy = true; activity(); stopWake();
+  caption(text, '', 0);
+  thinking = true; setMood('thinking'); setStatus('Thinking…');
+  try {
+    const {tag, text: said} = await ask(text);
+    thinking = false;
+    setMood(tag === 'thinking' ? 'neutral' : tag);
+    caption(text, said, 0);
+    await speak(said);
+    setMood(tag === 'neutral' || tag === 'thinking' ? 'neutral' : tag, 2500);
+    caption(text, said, 7000);
+  } catch (e) {
+    thinking = false; talking = false;
+    const msg = (e && e.friendly) || (e && e.code === 'rate_limited' ? 'I need a short breather. Try again in a moment.' : 'Something went wrong reaching Claude.');
+    setMood('sad', 3000); caption(text, msg, 8000); console.warn(e);
+  } finally {
+    busy = false; activity(); setStatus(readyText()); startWake();
+  }
+}
+
+// ---------- speaking ----------
+let voices = [];
+function loadVoices() {
+  if (!hasSynth) return;
+  voices = speechSynthesis.getVoices().filter(v => /^en/i.test(v.lang));
+  fillVoiceSelect();
+}
+if (hasSynth) { loadVoices(); speechSynthesis.onvoiceschanged = loadVoices; }
+function pickVoice() {
+  if (S.voice && S.voice.startsWith('sys:')) return voices.find(v => v.name === S.voice.slice(4));
+  return voices.find(v => /en-GB/i.test(v.lang) && /male/i.test(v.name) && !/female/i.test(v.name))
+      || voices.find(v => /en-GB/i.test(v.lang)) || voices[0];
+}
+async function speak(text) {
+  if (!text) return;
+  talking = true; setStatus('Speaking…');
+  try {
+    if (tts && !(S.voice || '').startsWith('sys:')) {
+      await tts.speak(text, {voice: (S.voice || 'claude:rounded').replace('claude:', '') || 'rounded'});
+    } else if (hasSynth && voices.length) {
+      await new Promise(res => {
+        speechSynthesis.cancel();
+        const u = new SpeechSynthesisUtterance(text);
+        const v = pickVoice(); if (v) { u.voice = v; u.lang = v.lang; } else u.lang = 'en-GB';
+        u.rate = 1; u.pitch = .95;
+        u.onend = u.onerror = () => res();
+        speechSynthesis.speak(u);
+        setTimeout(res, 4000 + text.length * 90);
+      });
+    } else {
+      await new Promise(res => setTimeout(res, Math.min(9000, 900 + text.length * 55)));
+    }
+  } catch (e) {
+    await new Promise(res => setTimeout(res, Math.min(9000, 900 + text.length * 55)));
+  }
+  talking = false;
+}
+
+// ---------- listening ----------
+const talkBtn = $('talkBtn');
+let heard = '', rec = null;
+function setListening(on) {
+  listening = on; talkBtn.classList.toggle('live', on);
+  talkBtn.querySelector('span').textContent = on ? 'Stop' : 'Talk';
+  if (on) { setMood('listening'); setStatus('Listening…'); showBar(); }
+  else if (mood === 'listening') setMood('neutral');
+}
+talkBtn.addEventListener('click', () => {
+  activity(); showBar();
+  if (busy) return;
+  if (dictation) {
+    if (listening) { dictation.stop().catch(() => {}); return; }
+    heard = '';
+    dictation.start().then(() => setListening(true)).catch(e => {
+      setListening(false);
+      caption('', e && e.code === 'not_granted' ? 'Microphone is off for this page, so type to me instead.' : 'I could not start listening. Try typing instead.', 6000);
+      if (e && e.code === 'not_granted') talkBtn.style.display = 'none';
+    });
+    return;
+  }
+  if (SR) {
+    if (listening && rec) { rec.stop(); return; }
+    stopWake();
+    rec = new SR(); rec.lang = 'en-GB'; rec.interimResults = true; rec.continuous = false;
+    heard = '';
+    rec.onresult = ev => {
+      let fin = '', part = '';
+      for (const r of ev.results) (r.isFinal ? (fin += r[0].transcript) : (part += r[0].transcript));
+      heard = fin || heard; caption(fin + part, '', 0);
+    };
+    rec.onend = () => { setListening(false); rec = null; if (heard.trim()) handle(heard); else { caption('', '', 1); startWake(); } };
+    rec.onerror = ev => { if (ev.error === 'not-allowed') caption('', 'Microphone permission is needed. Allow it in the browser.', 7000); };
+    try { rec.start(); setListening(true); } catch (e) {}
+    return;
+  }
+  caption('', 'Voice input is not available here, so type to me instead.', 6000);
+});
+
+// Always-listening wake word (phone mode)
+let wakeRec = null, wakeWanted = false, waitingForCommand = false;
+const WAKE = /\b(claude|clawed|cloud|clord|claud)\b[,.!?]?\s*/i;
+function startWake() {
+  wakeWanted = S.wake && !!SR && !dictation;
+  if (!wakeWanted || wakeRec || busy || listening) return;
+  wakeRec = new SR(); wakeRec.lang = 'en-GB'; wakeRec.continuous = true; wakeRec.interimResults = false;
+  wakeRec.onresult = ev => {
+    const t = ev.results[ev.results.length - 1][0].transcript.trim();
+    if (waitingForCommand) { waitingForCommand = false; setListening(false); handle(t); return; }
+    const m = t.match(WAKE);
+    if (!m) return;
+    const rest = t.slice(m.index + m[0].length).trim();
+    activity();
+    if (rest.split(/\s+/).length >= 2) handle(rest);
+    else { waitingForCommand = true; setListening(true); setTimeout(() => { if (waitingForCommand) { waitingForCommand = false; setListening(false); } }, 7000); }
+  };
+  wakeRec.onend = () => { wakeRec = null; if (wakeWanted && !busy && !listening) setTimeout(startWake, 400); };
+  wakeRec.onerror = () => {};
+  try { wakeRec.start(); setStatus('Say "Claude…"'); } catch (e) { wakeRec = null; }
+}
+function stopWake() { if (wakeRec) { const r = wakeRec; wakeRec = null; try { r.abort(); } catch (e) {} } }
+
+// ---------- typing ----------
+$('typeBtn').addEventListener('click', () => {
+  const box = $('typebox'); box.classList.toggle('show'); showBar();
+  if (box.classList.contains('show')) { $('typed').focus(); setMood('listening'); } else if (mood === 'listening') setMood('neutral');
+});
+$('typebox').addEventListener('submit', e => {
+  e.preventDefault();
+  const t = $('typed').value; $('typed').value = '';
+  $('typebox').classList.remove('show'); $('typed').blur();
+  handle(t);
+});
+
+// ---------- camera follow (phone mode) ----------
+let camStream = null, camTimer = 0, prevPix = null, detector = null;
+async function startCam() {
+  if (camStream || !navigator.mediaDevices) return;
+  try {
+    camStream = await navigator.mediaDevices.getUserMedia({video:{facingMode:'user', width:320, height:240}, audio:false});
+    const v = $('cam'); v.srcObject = camStream; await v.play();
+    if ('FaceDetector' in window) { try { detector = new FaceDetector({fastMode:true, maxDetectedFaces:1}); } catch (e) { detector = null; } }
+    const small = document.createElement('canvas'); small.width = 64; small.height = 48;
+    const sctx = small.getContext('2d', {willReadFrequently:true});
+    camTimer = setInterval(async () => {
+      if (!camStream) return;
+      let fx = null, fy = null;
+      if (detector) {
+        try { const f = await detector.detect(v); if (f[0]) { const b = f[0].boundingBox; fx = (b.x + b.width / 2) / v.videoWidth; fy = (b.y + b.height / 2) / v.videoHeight; } } catch (e) { detector = null; }
+      }
+      if (fx === null) {
+        sctx.drawImage(v, 0, 0, 64, 48);
+        const px = sctx.getImageData(0, 0, 64, 48).data;
+        if (prevPix) {
+          let sx = 0, sy = 0, n = 0;
+          for (let i = 0; i < px.length; i += 4) {
+            if (Math.abs(px[i] - prevPix[i]) + Math.abs(px[i+1] - prevPix[i+1]) > 60) { const p = i / 4; sx += p % 64; sy += (p / 64) | 0; n++; }
+          }
+          if (n > 25) { fx = sx / n / 64; fy = sy / n / 48; }
+        }
+        prevPix = px;
+      }
+      if (fx !== null) {
+        look = {x: Math.max(-1, Math.min(1, (fx * 2 - 1) * 1.3)), y: Math.max(-1, Math.min(1, (fy * 2 - 1) * 1.1))};
+        lookUntil = performance.now() + 1200;
+        if (mood === 'asleep' || mood === 'sleepy') { activity(); }
+        else if (performance.now() - lastActivity > 20000) lastActivity = performance.now() - 15000;
+      }
+    }, 250);
+  } catch (e) {
+    S.cam = false; save(); $('cam').checked = false;
+    caption('', 'I could not open the camera. Allow camera access to let me follow you.', 7000);
+  }
+}
+function stopCam() { clearInterval(camTimer); if (camStream) camStream.getTracks().forEach(t => t.stop()); camStream = null; prevPix = null; }
+
+// ---------- settings sheet ----------
+const COLOURS = ['#dff1ff', '#ffffff', '#9fe7ff', '#f2d18b', '#a8f0c6'];
+function fillVoiceSelect() {
+  const sel = $('voice'); if (!sel) return;
+  const opts = [];
+  if (tts) for (const v of ['rounded', 'buttery', 'airy', 'glassy']) opts.push([`claude:${v}`, `Claude voice: ${v}`]);
+  for (const v of voices) opts.push([`sys:${v.name}`, `${v.name} (${v.lang})`]);
+  if (!opts.length) opts.push(['', 'No voices available here']);
+  sel.innerHTML = opts.map(([v, l]) => `<option value="${esc(v)}">${esc(l)}</option>`).join('');
+  if (S.voice && opts.some(o => o[0] === S.voice)) sel.value = S.voice;
+  else { const auto = tts ? 'claude:rounded' : (pickVoice() ? `sys:${pickVoice().name}` : ''); sel.value = auto; }
+}
+function readyText() {
+  if (inClaude) return sample ? 'Ready' : 'Connecting…';
+  if (!S.apiKey) return 'Needs API key';
+  return S.wake && SR ? 'Say "Claude…"' : 'Ready';
+}
+function openSheet() {
+  $('modeNote').textContent = inClaude
+    ? 'Running inside Claude: replies come from Claude with no API key needed. The camera and always-listening options work once this page is on the robot phone.'
+    : 'Phone mode: add your Claude API key once. It is saved only on this phone.';
+  $('modeTag').innerHTML = inClaude ? 'Mode: <b>Claude preview</b>' : 'Mode: <b>Robot phone</b>';
+  $('keyRow').style.display = inClaude ? 'none' : '';
+  $('modelRow').style.display = inClaude ? 'none' : '';
+  $('wakeRow').style.display = inClaude || !SR ? 'none' : '';
+  $('camRow').style.display = inClaude ? 'none' : '';
+  $('apiKey').value = S.apiKey; $('model').value = S.model;
+  $('captions').checked = S.captions; $('wake').checked = S.wake; $('cam').checked = S.cam;
+  fillVoiceSelect();
+  $('swatches').innerHTML = COLOURS.map(c => `<div class="swatch${c === S.color ? ' on' : ''}" data-c="${c}" style="background:${c}"></div>`).join('');
+  $('sheet').classList.add('show'); showBar();
+}
+$('setBtn').addEventListener('click', openSheet);
+$('swatches').addEventListener('click', e => { const c = e.target.dataset && e.target.dataset.c; if (c) { S.color = c; save(); openSheet(); } });
+$('moodBtns').innerHTML = Object.keys(MOODS).map(m => `<button type="button" data-m="${m}">${m}</button>`).join('') + '<button type="button" data-m="talk">talking</button>';
+$('moodBtns').addEventListener('click', e => {
+  const m = e.target.dataset && e.target.dataset.m; if (!m) return;
+  if (m === 'talk') { talking = true; setTimeout(() => { talking = false; }, 2500); return; }
+  setMood(m, m === 'asleep' ? 0 : 3000);
+  if (m !== 'asleep' && m !== 'sleepy') lastActivity = performance.now();
+});
+$('closeSet').addEventListener('click', () => {
+  S.apiKey = $('apiKey').value.trim(); S.model = $('model').value; S.voice = $('voice').value;
+  S.captions = $('captions').checked; S.wake = $('wake').checked; S.cam = $('cam').checked;
+  save(); $('sheet').classList.remove('show');
+  if (S.cam && !inClaude) startCam(); else stopCam();
+  stopWake(); startWake(); setStatus(readyText()); showBar();
+});
+$('sheet').addEventListener('click', e => { if (e.target.id === 'sheet') $('closeSet').click(); });
+
+// ---------- start ----------
+(async () => {
+  for (let i = 0; i < 10 && !inClaude; i++) {
+    await new Promise(r => setTimeout(r, 100));
+    inClaude = !!(window.claude && typeof window.claude.use === 'function');
+  }
+  if (inClaude) {
+    setStatus('Connecting…');
+    const [s, d, t] = await Promise.all([
+      window.claude.use('sample').catch(() => null),
+      window.claude.use('dictation').catch(() => null),
+      window.claude.use('tts').catch(() => null)
+    ]);
+    sample = s; dictation = d; tts = t;
+    if (dictation) {
+      dictation.onPartial(({text}) => caption(heard + ' ' + text, '', 0));
+      dictation.onFinal(({text}) => { heard = (heard + ' ' + text).trim(); caption(heard, '', 0); });
+      dictation.onState(({state}) => { if (state === 'idle' && listening) { setListening(false); if (heard.trim()) handle(heard); } });
+    } else if (!SR) {
+      talkBtn.style.display = 'none';
+    }
+    fillVoiceSelect();
+    setStatus(sample ? 'Ready' : 'Claude unavailable here');
+  } else {
+    if (!SR) talkBtn.style.display = 'none';
+    setStatus(readyText());
+    if (!S.apiKey) setTimeout(openSheet, 600);
+    if (S.cam) startCam();
+    startWake();
+  }
+  setTimeout(() => { setMood('happy', 1600); }, 500);
+})();
+})();
+</script>
+</body>
+</html>
