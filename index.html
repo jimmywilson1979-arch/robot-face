@@ -91,6 +91,11 @@
     <label class="check"><input type="checkbox" id="captions"> Show captions of what's said</label>
     <label class="check" id="wakeRow"><input type="checkbox" id="wake"> Keep listening for a follow-up after it answers</label>
     <label class="check" id="sightRow"><input type="checkbox" id="sight"> Start listening when it sees me (needs the camera)</label>
+    <div id="pvBox">
+      <div class="row"><label for="pvKey">Wake word: Picovoice access key</label><input id="pvKey" type="password" placeholder="From console.picovoice.ai (free). Leave blank for no wake word."></div>
+      <div class="row"><label for="pvWord">Wake word</label>
+        <select id="pvWord"><option>Jarvis</option><option>Computer</option><option>Bumblebee</option><option>Porcupine</option><option>Picovoice</option><option>Terminator</option></select></div>
+    </div>
     <div class="row" id="townRow"><label for="town">Home town (for weather and local info)</label><input id="town" type="text" placeholder="Hay-on-Wye"></div>
     <label class="check" id="camRow"><input type="checkbox" id="cam"> Follow me with the front camera</label>
     <div class="row" id="camTestRow"><label>Camera check</label>
@@ -116,7 +121,7 @@
 (() => {
 'use strict';
 // ---------- settings ----------
-const DEFAULTS = {apiKey:'', model:'claude-haiku-5-5', voice:'', color:'#dff1ff', captions:true, followUp:true, sight:false, cam:false, user:'James', town:'Hay-on-Wye', elKey:'', elVoice:'wiF43F1vngB3iRFsbWhJ', elCustom:''};
+const DEFAULTS = {apiKey:'', model:'claude-haiku-5-5', voice:'', color:'#dff1ff', captions:true, followUp:true, sight:false, cam:false, user:'James', town:'Hay-on-Wye', pvKey:'', pvWord:'Jarvis', elKey:'', elVoice:'wiF43F1vngB3iRFsbWhJ', elCustom:''};
 let S = {...DEFAULTS};
 try { S = {...DEFAULTS, ...JSON.parse(localStorage.getItem('robotface.settings') || '{}')}; } catch (e) {}
 const save = () => { try { localStorage.setItem('robotface.settings', JSON.stringify(S)); } catch (e) {} };
@@ -344,6 +349,7 @@ function systemPrompt() {
     `Personality: a calm, warm, gently witty British butler in the spirit of Jarvis. Polite and helpful, never gushing. Use British English. ` +
     `Your words are spoken aloud, so answer in one to three short sentences of plain speech: no lists, no markdown, no emoji. ` +
     (inClaude ? `If asked for live information you cannot see (weather, news, scores), say briefly that you are not connected to that here. ` : `You can search the web for live information such as weather, news, sports scores, opening times and travel; search when needed and give just the answer, briefly, without reading out web addresses. ${S.user}'s home is ${S.town}, UK, so use that for weather and anything local unless told otherwise. You cannot see his calendar or email yet. `) +
+    (inClaude ? '' : `You have a front camera. When a question needs sight, use the look tool to take a photo rather than saying you cannot see; describe only what is useful, kindly and briefly. ${camStream ? (performance.now() - camSeenAt < 3000 ? 'Right now the camera senses someone in front of you. ' : 'Right now the camera senses no one in front of you. ') : ''}`) +
     `Begin every reply with exactly one mood tag chosen to suit it: [happy] [thinking] [curious] [surprised] [sad] [sleepy] [neutral]. ` +
     `It is now ${now}.`;
 }
@@ -360,24 +366,36 @@ async function ask(text) {
     if (!S.apiKey) throw {friendly:'I need a Claude API key in settings before I can think.'};
     const search = {type:'web_search_20250305', name:'web_search', max_uses:3,
       user_location:{type:'approximate', city:S.town || 'Hay-on-Wye', region:'Wales', country:'GB', timezone:'Europe/London'}};
+    const lookTool = {name:'look', description:"Take a photo with the robot's front camera and see it. Use this whenever answering needs sight: who is there, what someone is holding or wearing, how they look, what is in front of you, or reading something held up to the camera.", input_schema:{type:'object', properties:{}}};
     const call = async (msgs, withSearch) => {
-      const body = {model:S.model, max_tokens:500, system:systemPrompt(), messages:msgs};
-      if (withSearch) body.tools = [search];
+      const body = {model:S.model, max_tokens:500, system:systemPrompt(), messages:msgs, tools:[lookTool]};
+      if (withSearch) body.tools.push(search);
       return fetch('https://api.anthropic.com/v1/messages', {
         method:'POST',
         headers:{'content-type':'application/json','x-api-key':S.apiKey,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},
         body:JSON.stringify(body)
       });
     };
-    let msgs = history.slice(), useSearch = S.search !== false;
-    let r = await call(msgs, useSearch);
-    if (!r.ok && useSearch && r.status === 400) { S.search = false; save(); useSearch = false; r = await call(msgs, false); }
-    if (!r.ok) { const t = await r.text(); throw {friendly: r.status === 401 ? 'That API key was refused. Check it in settings.' : 'I could not reach Claude just now.', detail:t}; }
-    let j = await r.json(), parts = j.content || [];
-    for (let i = 0; i < 2 && j.stop_reason === 'pause_turn'; i++) {
-      msgs = msgs.concat([{role:'assistant', content:j.content}]);
-      r = await call(msgs, useSearch); if (!r.ok) break;
-      j = await r.json(); parts = parts.concat(j.content || []);
+    let msgs = history.slice(), parts = [];
+    for (let step = 0; step < 5; step++) {
+      let r = await call(msgs, searchOn);
+      if (!r.ok && searchOn && r.status === 400) { searchOn = false; r = await call(msgs, false); }
+      if (!r.ok) { const t = await r.text(); throw {friendly: r.status === 401 ? 'That API key was refused. Check it in settings.' : 'I could not reach Claude just now.', detail:t}; }
+      const j = await r.json();
+      parts = parts.concat(j.content || []);
+      if (j.stop_reason === 'pause_turn') { msgs = msgs.concat([{role:'assistant', content:j.content}]); continue; }
+      if (j.stop_reason !== 'tool_use') break;
+      const results = [];
+      for (const b of (j.content || []).filter(c => c.type === 'tool_use')) {
+        if (b.name === 'look') {
+          const shot = await takePhoto();
+          results.push({type:'tool_result', tool_use_id:b.id, content: shot
+            ? [{type:'image', source:{type:'base64', media_type:'image/jpeg', data:shot}}]
+            : 'The camera could not take a photo (it may be blocked or busy).'});
+        } else results.push({type:'tool_result', tool_use_id:b.id, content:'Unknown tool.', is_error:true});
+      }
+      msgs = msgs.concat([{role:'assistant', content:j.content}, {role:'user', content:results}]);
+      setMood('thinking'); setStatus('Thinking…');
     }
     reply = parts.filter(c => c.type === 'text').map(c => c.text).join('');
   }
@@ -389,7 +407,7 @@ async function ask(text) {
   return {tag: MOODS[tag] ? tag : 'neutral', text: spoken};
 }
 
-let busy = false, followUp = false;
+let busy = false, followUp = false, searchOn = true;
 async function handle(text) {
   text = (text || '').trim();
   if (!text || busy) return;
@@ -513,8 +531,10 @@ talkBtn.addEventListener('click', () => {
 });
 
 // One listen = one beep. Used by the Talk button, the follow-up after a reply, and "listen when it sees me".
-function startListen(auto) {
+async function startListen(auto) {
   if (!SR || rec || busy || listening) return;
+  if (wakeRunning && !wakePaused) { await pauseWake(); await new Promise(r => setTimeout(r, 150)); }
+  if (rec || busy || listening) return;
   rec = new SR(); rec.lang = 'en-GB'; rec.interimResults = true; rec.continuous = false;
   heard = '';
   rec.onresult = ev => {
@@ -535,6 +555,39 @@ function startListen(auto) {
 let micBlocked = false;
 const HELP_MIC = 'The microphone is blocked. Tap the icon to the left of the web address, then Permissions, then turn on Microphone, and reload.';
 const HELP_CAM = 'The camera is blocked. Tap the icon to the left of the web address, then Permissions, then turn on Camera, and reload.';
+// ---------- wake word (Picovoice Porcupine, runs on the device, no beeps) ----------
+let pv = null, wakeRunning = false, wakePaused = false, wakeLoading = false;
+function loadScript(src) { return new Promise((res, rej) => { const el = document.createElement('script'); el.src = src; el.onload = res; el.onerror = () => rej(new Error('could not load ' + src)); document.head.appendChild(el); }); }
+async function startWakeWord() {
+  if (inClaude || !S.pvKey || wakeRunning || wakeLoading) return;
+  wakeLoading = true; setStatus('Starting wake word…');
+  try {
+    if (!window.PorcupineWeb) await loadScript('https://unpkg.com/@picovoice/porcupine-web@4.0.1/dist/iife/index.min.js');
+    if (!window.WebVoiceProcessor) await loadScript('https://unpkg.com/@picovoice/web-voice-processor@4.0.10/dist/iife/index.min.js');
+    pv = await PorcupineWeb.PorcupineWorker.create(S.pvKey, [{builtin: S.pvWord || 'Jarvis', sensitivity: .65}], () => onWake(), {publicPath: 'porcupine_params.pv'});
+    await WebVoiceProcessor.WebVoiceProcessor.subscribe(pv);
+    wakeRunning = true; wakePaused = false;
+  } catch (e) {
+    pv = null; wakeRunning = false; console.warn(e);
+    const m = String((e && e.message) || e);
+    caption('', /AccessKey|activation|key/i.test(m) ? 'Picovoice refused that access key. Check it in settings.' : 'The wake word could not start: ' + m.slice(0, 120), 12000);
+  }
+  wakeLoading = false; setStatus(readyText());
+}
+async function pauseWake() { if (pv && wakeRunning && !wakePaused) { wakePaused = true; try { await WebVoiceProcessor.WebVoiceProcessor.unsubscribe(pv); } catch (e) {} } }
+async function resumeWake() { if (pv && wakeRunning && wakePaused) { wakePaused = false; try { await WebVoiceProcessor.WebVoiceProcessor.subscribe(pv); } catch (e) { wakePaused = true; } } }
+async function stopWakeWord() {
+  if (pv) { try { await WebVoiceProcessor.WebVoiceProcessor.unsubscribe(pv); } catch (e) {} try { await pv.release(); } catch (e) {} try { pv.terminate(); } catch (e) {} }
+  pv = null; wakeRunning = false; wakePaused = false;
+}
+function onWake() {
+  if (busy || listening || talking) return;
+  activity(); showBar(); setMood('curious', 600, 'listening');
+  startListen(true);
+}
+setInterval(() => { if (wakeRunning && wakePaused && !busy && !listening && !talking && !rec) resumeWake(); }, 1000);
+// browsers only allow the microphone engine to start after a tap
+window.addEventListener('pointerdown', () => { if (S.pvKey && !wakeRunning) startWakeWord(); }, {passive: true});
 function startWake() {}
 function stopWake() { if (rec && !listening) { try { rec.abort(); } catch (e) {} rec = null; } }
 
@@ -555,7 +608,7 @@ let camStream = null, camTimer = 0, prevPix = null, detector = null, lastSeen = 
 async function startCam() {
   if (camStream || !navigator.mediaDevices) return;
   try {
-    camStream = await navigator.mediaDevices.getUserMedia({video:{facingMode:'user', width:320, height:240}, audio:false});
+    camStream = await navigator.mediaDevices.getUserMedia({video:{facingMode:'user', width:{ideal:960}, height:{ideal:720}}, audio:false});
     const v = $('camVideo'); v.srcObject = camStream; await v.play();
     camErr = ''; camMode = 'motion';
     if ('FaceDetector' in window) { try { detector = new FaceDetector({fastMode:true, maxDetectedFaces:1}); camMode = 'face'; } catch (e) { detector = null; } }
@@ -603,6 +656,26 @@ async function startCam() {
 }
 function stopCam() { clearInterval(camTimer); if (camStream) camStream.getTracks().forEach(t => t.stop()); camStream = null; prevPix = null; }
 
+// ---------- taking a photo for Claude ----------
+async function takePhoto() {
+  const prevMood = mood;
+  setMood('curious'); setStatus('Looking…');
+  const tempCam = !camStream;
+  if (tempCam) { await startCam(); await new Promise(r => setTimeout(r, 700)); }
+  if (!camStream) return null;
+  const v = $('camVideo');
+  for (let i = 0; i < 10 && !v.videoWidth; i++) await new Promise(r => setTimeout(r, 100));
+  if (!v.videoWidth) return null;
+  const c = document.createElement('canvas');
+  const w = Math.min(768, v.videoWidth), h = Math.round(v.videoHeight * w / v.videoWidth);
+  c.width = w; c.height = h; c.getContext('2d').drawImage(v, 0, 0, w, h);
+  const data = c.toDataURL('image/jpeg', .75).split(',')[1];
+  if (tempCam && !S.cam && !S.sight && !testing) stopCam();
+  // a quick blink so you know it took a photo
+  blinkStart = performance.now();
+  return data;
+}
+
 // ---------- camera test ----------
 let testing = false, testTimer = 0;
 $('camTestBtn').addEventListener('click', async () => {
@@ -647,6 +720,8 @@ function fillVoiceSelect() {
 function readyText() {
   if (inClaude) return sample ? 'Ready' : 'Connecting…';
   if (!S.apiKey) return 'Needs API key';
+  if (wakeRunning) return `Say "${S.pvWord || 'Jarvis'}"`;
+  if (S.pvKey && !inClaude) return 'Tap once to start the wake word';
   return 'Ready';
 }
 function openSheet() {
@@ -665,6 +740,8 @@ function openSheet() {
   $('apiKey').value = S.apiKey; $('model').value = S.model;
   $('captions').checked = S.captions; $('wake').checked = S.followUp; $('cam').checked = S.cam;
   $('elBox').style.display = inClaude ? 'none' : '';
+  $('pvBox').style.display = inClaude ? 'none' : '';
+  $('pvKey').value = S.pvKey || ''; $('pvWord').value = S.pvWord || 'Jarvis';
   $('elKey').value = S.elKey; $('elVoice').value = S.elVoice; $('elCustom').value = S.elCustom;
   $('elCustomRow').style.display = S.elVoice === 'custom' ? '' : 'none';
   fillVoiceSelect();
@@ -695,6 +772,10 @@ $('previewVoice').addEventListener('click', async () => {
 $('closeSet').addEventListener('click', () => {
   if (testing) endCamTest();
   readVoiceSettings();
+  if (!inClaude) {
+    const k = $('pvKey').value.trim(), w = $('pvWord').value;
+    if (k !== S.pvKey || w !== S.pvWord) { S.pvKey = k; S.pvWord = w; save(); stopWakeWord().then(() => { if (k) startWakeWord(); }); }
+  }
   S.apiKey = $('apiKey').value.trim(); S.model = $('model').value; S.voice = $('voice').value;
   S.captions = $('captions').checked; S.followUp = $('wake').checked; S.sight = $('sight').checked; S.cam = $('cam').checked || S.sight; S.town = $('town').value.trim() || 'Hay-on-Wye';
   save(); $('sheet').classList.remove('show');

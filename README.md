@@ -10,6 +10,9 @@ The face of James's home robot: an old Android phone becomes the robot's head, a
 - Web search for live info (weather, news, scores), localised to your home town
 - Listens again for a follow-up after each answer, and can start listening when the camera sees you
 - Front camera follow: the eyes track you around the room
+- Sight: Claude can take a photo with the camera when a question needs it ("what am I holding?")
+- Silent wake word ("Jarvis" by default) using Picovoice Porcupine, running on the device; needs a free Picovoice access key
+- Premium ElevenLabs voices with lip-sync (optional)
 - Gets sleepy when left alone, wakes on a tap or when it sees movement
 
 ## Setting it up on the robot phone
@@ -18,4 +21,4 @@ The face of James's home robot: an old Android phone becomes the robot's head, a
 3. Allow the microphone and camera when asked.
 4. For full-screen use, set the link as the start page in Fully Kiosk Browser.
 
-Everything is one file: `index.html`.
+Everything is in `index.html`; `porcupine_params.pv` is the wake-word model.
