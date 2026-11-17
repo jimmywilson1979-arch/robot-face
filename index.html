@@ -72,7 +72,21 @@
     <div class="row" id="keyRow"><label for="apiKey">Claude API key (phone mode)</label><input id="apiKey" type="password" placeholder="sk-ant-…"></div>
     <div class="row" id="modelRow"><label for="model">Model</label>
       <select id="model"><option value="claude-haiku-5-5">Haiku 5.5 (fastest, cheapest)</option><option value="claude-sonnet-5-5">Sonnet 5.5 (smarter)</option></select></div>
-    <div class="row"><label for="voice">Voice</label><select id="voice"></select></div>
+    <div class="row"><label for="voice">Free voice (built into this device)</label><select id="voice"></select></div>
+    <div id="elBox">
+      <div class="row"><label for="elKey">ElevenLabs API key (for the premium voices)</label><input id="elKey" type="password" placeholder="sk_…  (leave blank to use the free voice)"></div>
+      <div class="row"><label for="elVoice">Premium voice</label>
+        <select id="elVoice">
+          <option value="wiF43F1vngB3iRFsbWhJ">Butler – Nathaniel: crisp RP assistant, dry wit</option>
+          <option value="JBFqnCBsd6RMkjVDRZzb">George – warm, mature British</option>
+          <option value="onwK4e9ZLuTAKqWW03F9">Daniel – steady British broadcaster</option>
+          <option value="erjfZbWOeOlXoejyglLN">Lord Alistair – posh British aristocrat</option>
+          <option value="7p1Ofvcwsv7UBPoFNcpI">Julian – deep, rich, mature British</option>
+          <option value="custom">Another voice (paste its voice ID)</option>
+        </select></div>
+      <div class="row" id="elCustomRow"><label for="elCustom">Voice ID</label><input id="elCustom" type="text" placeholder="e.g. from your ElevenLabs voice library"></div>
+    </div>
+    <div class="row"><button class="btn" id="previewVoice" type="button" style="align-self:flex-start">Hear this voice</button></div>
     <div class="row"><label>Face colour</label><div class="swatches" id="swatches"></div></div>
     <label class="check"><input type="checkbox" id="captions"> Show captions of what's said</label>
     <label class="check" id="wakeRow"><input type="checkbox" id="wake"> Keep listening for a follow-up after it answers</label>
@@ -102,7 +116,7 @@
 (() => {
 'use strict';
 // ---------- settings ----------
-const DEFAULTS = {apiKey:'', model:'claude-haiku-5-5', voice:'', color:'#dff1ff', captions:true, followUp:true, sight:false, cam:false, user:'James', town:'Hay-on-Wye'};
+const DEFAULTS = {apiKey:'', model:'claude-haiku-5-5', voice:'', color:'#dff1ff', captions:true, followUp:true, sight:false, cam:false, user:'James', town:'Hay-on-Wye', elKey:'', elVoice:'wiF43F1vngB3iRFsbWhJ', elCustom:''};
 let S = {...DEFAULTS};
 try { S = {...DEFAULTS, ...JSON.parse(localStorage.getItem('robotface.settings') || '{}')}; } catch (e) {}
 const save = () => { try { localStorage.setItem('robotface.settings', JSON.stringify(S)); } catch (e) {} };
@@ -187,7 +201,12 @@ function frame(now) {
   cur.lx += (tx - cur.lx) * kl; cur.ly += (ty - cur.ly) * kl;
   cur.cap += ((capShown || !bar.classList.contains('hide') ? 1 : 0) - cur.cap) * k;
   let mo = cur.mo;
-  if (talking) mo = .12 + .45 * Math.abs(Math.sin(now / 75 + Math.sin(now / 190) * 2)) * (0.6 + .4 * Math.random());
+  if (talking) {
+    let lv = -1;
+    if (analyser) { const buf = new Uint8Array(analyser.fftSize); analyser.getByteTimeDomainData(buf); let sum = 0; for (const b of buf) sum += (b - 128) * (b - 128); lv = Math.sqrt(sum / buf.length) / 40; }
+    if (lv >= 0 && S.elKey) { level += (Math.min(1, lv) - level) * .5; mo = .05 + level * .9; }
+    else mo = .12 + .45 * Math.abs(Math.sin(now / 75 + Math.sin(now / 190) * 2)) * (0.6 + .4 * Math.random());
+  }
   draw(now, mo);
   requestAnimationFrame(frame);
 }
@@ -409,9 +428,38 @@ function pickVoice() {
   return voices.find(v => /en-GB/i.test(v.lang) && /male/i.test(v.name) && !/female/i.test(v.name))
       || voices.find(v => /en-GB/i.test(v.lang)) || voices[0];
 }
+let audioCtx = null, analyser = null, level = 0, elWarned = false;
+function elVoiceId() { return S.elVoice === 'custom' ? (S.elCustom || '').trim() : S.elVoice; }
+async function speakEleven(text) {
+  const id = elVoiceId(); if (!id) throw new Error('no voice');
+  const r = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${encodeURIComponent(id)}?output_format=mp3_44100_64`, {
+    method:'POST', headers:{'xi-api-key':S.elKey, 'content-type':'application/json', 'accept':'audio/mpeg'},
+    body:JSON.stringify({text, model_id:'eleven_flash_v2_5', voice_settings:{stability:.5, similarity_boost:.8}})
+  });
+  if (!r.ok) {
+    const t = await r.text(); let msg = 'The premium voice failed, so I used the free one.';
+    if (r.status === 401) msg = 'ElevenLabs refused that API key, so I used the free voice. Check it in settings.';
+    else if (/voice_not_found|not found/i.test(t)) msg = 'That premium voice is not in your ElevenLabs account yet. Add it to My Voices in ElevenLabs, or pick George or Daniel.';
+    else if (/quota|credits/i.test(t)) msg = 'Your ElevenLabs credits have run out, so I used the free voice.';
+    throw {friendly: msg};
+  }
+  const blob = await r.blob();
+  const audio = new Audio(URL.createObjectURL(blob));
+  try {
+    if (!audioCtx) { audioCtx = new (window.AudioContext || window.webkitAudioContext)(); analyser = audioCtx.createAnalyser(); analyser.fftSize = 512; analyser.connect(audioCtx.destination); }
+    if (audioCtx.state === 'suspended') await audioCtx.resume();
+    audioCtx.createMediaElementSource(audio).connect(analyser);
+  } catch (e) { analyser = null; }
+  await new Promise((res, rej) => { audio.onended = res; audio.onerror = rej; audio.play().catch(rej); });
+  URL.revokeObjectURL(audio.src);
+}
 async function speak(text) {
   if (!text) return;
   talking = true; setStatus('Speaking…');
+  if (S.elKey && !inClaude) {
+    try { await speakEleven(text); talking = false; return; }
+    catch (e) { if (!elWarned) { elWarned = true; caption('', (e && e.friendly) || 'The premium voice failed, so I used the free one.', 8000); } }
+  }
   try {
     if (tts && !(S.voice || '').startsWith('sys:')) {
       await tts.speak(text, {voice: (S.voice || 'claude:rounded').replace('claude:', '') || 'rounded'});
@@ -534,7 +582,7 @@ async function startCam() {
       }
       if (fx !== null) {
         camSeenAt = performance.now();
-        look = {x: Math.max(-1, Math.min(1, (fx * 2 - 1) * 1.3)), y: Math.max(-1, Math.min(1, (fy * 2 - 1) * 1.1))};
+        look = {x: Math.max(-1, Math.min(1, (1 - fx * 2) * 1.3)), y: Math.max(-1, Math.min(1, (fy * 2 - 1) * 1.1))};
         lookUntil = performance.now() + 1200;
         const nowT = performance.now();
         if (detector && S.sight && nowT - lastSeen > 30000 && !busy && !listening && !micBlocked) setTimeout(() => startListen(true), 200);
@@ -616,6 +664,9 @@ function openSheet() {
   $('camTestRow').style.display = inClaude ? 'none' : '';
   $('apiKey').value = S.apiKey; $('model').value = S.model;
   $('captions').checked = S.captions; $('wake').checked = S.followUp; $('cam').checked = S.cam;
+  $('elBox').style.display = inClaude ? 'none' : '';
+  $('elKey').value = S.elKey; $('elVoice').value = S.elVoice; $('elCustom').value = S.elCustom;
+  $('elCustomRow').style.display = S.elVoice === 'custom' ? '' : 'none';
   fillVoiceSelect();
   $('swatches').innerHTML = COLOURS.map(c => `<div class="swatch${c === S.color ? ' on' : ''}" data-c="${c}" style="background:${c}"></div>`).join('');
   $('sheet').classList.add('show'); showBar();
@@ -629,8 +680,21 @@ $('moodBtns').addEventListener('click', e => {
   setMood(m, m === 'asleep' ? 0 : 3000);
   if (m !== 'asleep' && m !== 'sleepy') lastActivity = performance.now();
 });
+function readVoiceSettings() {
+  S.voice = $('voice').value;
+  if (!inClaude) { S.elKey = $('elKey').value.trim(); S.elVoice = $('elVoice').value; S.elCustom = $('elCustom').value.trim(); elWarned = false; }
+  save();
+}
+$('elVoice').addEventListener('change', () => { $('elCustomRow').style.display = $('elVoice').value === 'custom' ? '' : 'none'; });
+$('previewVoice').addEventListener('click', async () => {
+  readVoiceSettings();
+  if (talking) return;
+  setMood('happy', 2500);
+  await speak(`Good evening, ${S.user}. How may I be of service?`);
+});
 $('closeSet').addEventListener('click', () => {
   if (testing) endCamTest();
+  readVoiceSettings();
   S.apiKey = $('apiKey').value.trim(); S.model = $('model').value; S.voice = $('voice').value;
   S.captions = $('captions').checked; S.followUp = $('wake').checked; S.sight = $('sight').checked; S.cam = $('cam').checked || S.sight; S.town = $('town').value.trim() || 'Hay-on-Wye';
   save(); $('sheet').classList.remove('show');
