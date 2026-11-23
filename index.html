@@ -97,6 +97,9 @@
         </select></div>
       <div class="row" id="elCustomRow"><label for="elCustom">Voice ID</label><input id="elCustom" type="text" placeholder="e.g. from your ElevenLabs voice library"></div>
     </div>
+    <div class="row"><label for="speed">Talking speed for this personality: <b id="speedVal">Normal</b></label>
+      <div style="display:flex;align-items:center;gap:10px"><span class="note" style="margin:0">🐢</span><input id="speed" type="range" min="0.7" max="1.2" step="0.05" value="1" style="flex:1;accent-color:var(--ink)"><span class="note" style="margin:0">🐇</span>
+      <button class="btn" id="speedReset" type="button" style="padding:6px 10px">Reset</button></div></div>
     <div class="row"><button class="btn" id="previewVoice" type="button" style="align-self:flex-start">Hear this voice</button></div>
     <div class="row"><label>Face colour</label><div class="swatches" id="swatches"></div></div>
     <label class="check"><input type="checkbox" id="captions"> Show captions of what's said</label>
@@ -132,10 +135,11 @@
 (() => {
 'use strict';
 // ---------- settings ----------
-const DEFAULTS = {apiKey:'', model:'claude-haiku-5-5', voice:'', color:'#dff1ff', captions:true, followUp:true, sight:false, cam:false, user:'James', town:'Hay-on-Wye', pvKey:'', pvWord:'Jarvis', elKey:'', elVoice:'wiF43F1vngB3iRFsbWhJ', elCustom:'', persona:'butler', rockyEl:'', chords:true, pvoice:{}, pcustom:{}, cName:'', cDesc:''};
+const DEFAULTS = {apiKey:'', model:'claude-haiku-5-5', voice:'', color:'#dff1ff', captions:true, followUp:true, sight:false, cam:false, user:'James', town:'Hay-on-Wye', pvKey:'', pvWord:'Jarvis', elKey:'', elVoice:'wiF43F1vngB3iRFsbWhJ', elCustom:'', persona:'butler', rockyEl:'', chords:true, pvoice:{}, pcustom:{}, pspeed:{}, cName:'', cDesc:''};
 let S = {...DEFAULTS};
 try { S = {...DEFAULTS, ...JSON.parse(localStorage.getItem('robotface.settings') || '{}')}; } catch (e) {}
-S.pvoice = S.pvoice || {}; S.pcustom = S.pcustom || {};
+S.pvoice = S.pvoice || {}; S.pcustom = S.pcustom || {}; S.pspeed = S.pspeed || {};
+const speedOf = (id = S.persona) => Math.min(1.2, Math.max(.7, Number(S.pspeed[id]) || 1));
 if (S.pvoice.butler == null && S.elVoice && S.elVoice !== 'wiF43F1vngB3iRFsbWhJ') { S.pvoice.butler = S.elVoice; S.pcustom.butler = S.elCustom || ''; } // carry over an earlier voice choice
 if (S.rockyEl && S.pvoice.rocky == null) { S.pvoice.rocky = 'custom'; S.pcustom.rocky = S.rockyEl; }
 const save = () => { try { localStorage.setItem('robotface.settings', JSON.stringify(S)); } catch (e) {} };
@@ -508,7 +512,7 @@ async function speakEleven(text, voiceId) {
   const id = (voiceId || elVoiceId()).trim(); if (!id) throw new Error('no voice');
   const r = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${encodeURIComponent(id)}?output_format=mp3_44100_64`, {
     method:'POST', headers:{'xi-api-key':S.elKey, 'content-type':'application/json', 'accept':'audio/mpeg'},
-    body:JSON.stringify({text, model_id:'eleven_flash_v2_5', voice_settings:{stability:.5, similarity_boost:.8}})
+    body:JSON.stringify({text, model_id:'eleven_flash_v2_5', voice_settings:{stability:.5, similarity_boost:.8, speed:speedOf()}})
   });
   if (!r.ok) {
     const t = await r.text(); let msg = 'The premium voice failed, so I used the free one.';
@@ -572,7 +576,7 @@ async function speak(text) {
         speechSynthesis.cancel();
         const u = new SpeechSynthesisUtterance(text);
         const v = pickVoice(); if (v) { u.voice = v; u.lang = v.lang; } else u.lang = 'en-GB';
-        u.rate = persona().rate || 1; u.pitch = persona().pitch || .95;
+        u.rate = Math.min(2, (persona().rate || 1) * speedOf()); u.pitch = persona().pitch || .95;
         u.onend = u.onerror = () => res();
         speechSynthesis.speak(u);
         setTimeout(res, 4000 + text.length * 90);
@@ -836,6 +840,7 @@ function openSheet() {
   $('elKey').value = S.elKey; $('elVoice').value = voiceChoice(); if (!$('elVoice').value) $('elVoice').value = 'custom';
   $('elCustom').value = S.pcustom[S.persona] || '';
   $('elCustomRow').style.display = $('elVoice').value === 'custom' ? '' : 'none';
+  $('speed').value = speedOf(); showSpeed();
   fillVoiceSelect();
   $('swatches').innerHTML = COLOURS.map(c => `<div class="swatch${c === S.color ? ' on' : ''}" data-c="${c}" style="background:${c}"></div>`).join('');
   $('sheet').classList.add('show'); showBar();
@@ -859,6 +864,12 @@ function readVoiceSettings() {
 }
 $('persona').addEventListener('change', () => { readVoiceSettings(); openSheet(); });
 $('elVoice').addEventListener('change', () => { $('elCustomRow').style.display = $('elVoice').value === 'custom' ? '' : 'none'; });
+function showSpeed() {
+  const v = Number($('speed').value);
+  $('speedVal').textContent = Math.abs(v - 1) < .01 ? 'Normal' : (v < 1 ? 'Slower' : 'Faster') + ` (${Math.round(v * 100)}%)`;
+}
+$('speed').addEventListener('input', () => { S.pspeed[S.persona] = Number($('speed').value); save(); showSpeed(); }); // saved straight away, just for this personality
+$('speedReset').addEventListener('click', () => { delete S.pspeed[S.persona]; save(); $('speed').value = 1; showSpeed(); });
 $('previewVoice').addEventListener('click', async () => {
   readVoiceSettings();
   if (talking) return;
