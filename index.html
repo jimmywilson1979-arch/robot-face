@@ -97,6 +97,9 @@
       <div style="display:flex;align-items:center;gap:10px"><span class="note" style="margin:0">🐢</span><input id="speed" type="range" min="0.7" max="1.2" step="0.05" value="1" style="flex:1;accent-color:var(--ink)"><span class="note" style="margin:0">🐇</span>
       <button class="btn" id="speedReset" type="button" style="padding:6px 10px">Reset</button></div></div>
     <div class="row"><button class="btn" id="previewVoice" type="button" style="align-self:flex-start">Hear this voice</button></div>
+    <div class="row"><label for="faceStyle">Face style for this personality</label>
+      <select id="faceStyle"></select>
+      <p class="note" style="margin:6px 0 0">Tip: swipe left or right across the face to flick between styles, or just ask ("change your face to the orb").</p></div>
     <div class="row"><label>Face colour</label><div class="swatches" id="swatches"></div></div>
     <label class="check"><input type="checkbox" id="captions"> Show captions of what's said</label>
     <label class="check" id="wakeRow"><input type="checkbox" id="wake"> Keep listening for a follow-up after it answers</label>
@@ -131,11 +134,11 @@
 (() => {
 'use strict';
 // ---------- settings ----------
-const DEFAULTS = {apiKey:'', model:'claude-haiku-5-5', voice:'', color:'#dff1ff', captions:true, followUp:true, sight:false, cam:false, user:'James', town:'Hay-on-Wye', pvKey:'', pvWord:'Jarvis', elKey:'', elVoice:'wiF43F1vngB3iRFsbWhJ', elCustom:'', persona:'butler', rockyEl:'', chords:true, pvoice:{}, pcustom:{}, pspeed:{}, mxKey:'', vx:[], cName:'', cDesc:''};
+const DEFAULTS = {apiKey:'', model:'claude-haiku-5-5', voice:'', color:'#dff1ff', captions:true, followUp:true, sight:false, cam:false, user:'James', town:'Hay-on-Wye', pvKey:'', pvWord:'Jarvis', elKey:'', elVoice:'wiF43F1vngB3iRFsbWhJ', elCustom:'', persona:'butler', rockyEl:'', chords:true, pvoice:{}, pcustom:{}, pspeed:{}, pface:{}, mxKey:'', vx:[], cName:'', cDesc:''};
 let S = {...DEFAULTS};
 try { S = {...DEFAULTS, ...JSON.parse(localStorage.getItem('robotface.settings') || '{}')}; } catch (e) {}
 S.pvoice = S.pvoice || {}; S.pcustom = S.pcustom || {}; S.pspeed = S.pspeed || {};
-S.vx = Array.isArray(S.vx) ? S.vx : [];
+S.vx = Array.isArray(S.vx) ? S.vx : []; S.pface = S.pface || {};
 const speedOf = (id = S.persona) => Math.min(1.2, Math.max(.7, Number(S.pspeed[id]) || 1));
 if (S.pvoice.butler == null && S.elVoice && S.elVoice !== 'wiF43F1vngB3iRFsbWhJ') { S.pvoice.butler = S.elVoice; S.pcustom.butler = S.elCustom || ''; } // carry over an earlier voice choice
 if (S.rockyEl && S.pvoice.rocky == null) { S.pvoice.rocky = 'custom'; S.pcustom.rocky = S.rockyEl; }
@@ -231,13 +234,13 @@ function frame(now) {
   requestAnimationFrame(frame);
 }
 
-function draw(now, mo) {
-  ctx.fillStyle = '#000'; ctx.fillRect(0, 0, W, H);
-  const r = Math.min(H * .17, W * .1) * (1 - .2 * cur.cap);
-  const cx = W / 2, cy = H * (.45 - .08 * cur.cap), gap = r * 2.15, ey = cy - r * .35;
+function drawClassic(now, mo, g = ctx, w = W, h = H) {
+  g.fillStyle = '#000'; g.fillRect(0, 0, w, h);
+  const r = Math.min(h * .17, w * .1) * (1 - .2 * cur.cap);
+  const cx = w / 2, cy = h * (.45 - .08 * cur.cap), gap = r * 2.15, ey = cy - r * .35;
   const col = S.color;
-  ctx.globalAlpha = cur.dim;
-  ctx.lineCap = 'round';
+  g.globalAlpha = cur.dim;
+  g.lineCap = 'round';
   for (const side of [-1, 1]) {
     const ex = cx + side * gap;
     const rx = r * cur.scale * .92, ry = r * cur.scale;
@@ -245,35 +248,35 @@ function draw(now, mo) {
     const eyeA = 1 - cur.happy;
     // eye
     if (eyeA > .02) {
-      ctx.save(); ctx.globalAlpha = cur.dim * eyeA;
+      g.save(); g.globalAlpha = cur.dim * eyeA;
       if (open > .06) {
         // eyelid = clip: only the part of the eye below the lid line is drawn
         const lidY = ey - ry + (1 - open) * 2 * ry;
         const pad = r * 1.2, outerX = ex + side * (rx + pad), innerX = ex - side * (rx + pad);
         const droop = open < .98 || cur.sad > .05 ? ry * .6 * cur.sad : 0;
-        ctx.beginPath();
-        if (open >= .98 && cur.sad <= .05) ctx.rect(ex - rx - pad, ey - ry - pad, (rx + pad) * 2, (ry + pad) * 2);
-        else { ctx.moveTo(innerX, lidY); ctx.lineTo(outerX, lidY + droop); ctx.lineTo(outerX, ey + ry + pad); ctx.lineTo(innerX, ey + ry + pad); ctx.closePath(); }
-        ctx.clip();
-        ctx.shadowColor = col; ctx.shadowBlur = r * .45;
-        ctx.fillStyle = col; ctx.beginPath(); ctx.ellipse(ex, ey, rx, ry, 0, 0, Math.PI * 2); ctx.fill();
-        ctx.shadowBlur = 0;
+        g.beginPath();
+        if (open >= .98 && cur.sad <= .05) g.rect(ex - rx - pad, ey - ry - pad, (rx + pad) * 2, (ry + pad) * 2);
+        else { g.moveTo(innerX, lidY); g.lineTo(outerX, lidY + droop); g.lineTo(outerX, ey + ry + pad); g.lineTo(innerX, ey + ry + pad); g.closePath(); }
+        g.clip();
+        g.shadowColor = col; g.shadowBlur = r * .45;
+        g.fillStyle = col; g.beginPath(); g.ellipse(ex, ey, rx, ry, 0, 0, Math.PI * 2); g.fill();
+        g.shadowBlur = 0;
         const pr = rx * .42, px = ex + cur.lx * rx * .42, py = ey + cur.ly * ry * .42;
-        ctx.fillStyle = '#000'; ctx.beginPath(); ctx.arc(px, py, pr, 0, Math.PI * 2); ctx.fill();
-        ctx.fillStyle = col; ctx.globalAlpha = cur.dim * eyeA * .9;
-        ctx.beginPath(); ctx.arc(px - pr * .35, py - pr * .4, pr * .22, 0, Math.PI * 2); ctx.fill();
+        g.fillStyle = '#000'; g.beginPath(); g.arc(px, py, pr, 0, Math.PI * 2); g.fill();
+        g.fillStyle = col; g.globalAlpha = cur.dim * eyeA * .9;
+        g.beginPath(); g.arc(px - pr * .35, py - pr * .4, pr * .22, 0, Math.PI * 2); g.fill();
       } else {
-        ctx.strokeStyle = col; ctx.lineWidth = r * .16; ctx.shadowColor = col; ctx.shadowBlur = r * .3;
-        ctx.beginPath(); ctx.arc(ex, ey - r * .35, r * .62, Math.PI * .22, Math.PI * .78); ctx.stroke();
+        g.strokeStyle = col; g.lineWidth = r * .16; g.shadowColor = col; g.shadowBlur = r * .3;
+        g.beginPath(); g.arc(ex, ey - r * .35, r * .62, Math.PI * .22, Math.PI * .78); g.stroke();
       }
-      ctx.restore();
+      g.restore();
     }
     // happy arc eyes
     if (cur.happy > .02) {
-      ctx.save(); ctx.globalAlpha = cur.dim * cur.happy;
-      ctx.strokeStyle = col; ctx.lineWidth = r * .24; ctx.shadowColor = col; ctx.shadowBlur = r * .4;
-      ctx.beginPath(); ctx.arc(ex, ey + r * .32, r * .7, Math.PI * 1.15, Math.PI * 1.85); ctx.stroke();
-      ctx.restore();
+      g.save(); g.globalAlpha = cur.dim * cur.happy;
+      g.strokeStyle = col; g.lineWidth = r * .24; g.shadowColor = col; g.shadowBlur = r * .4;
+      g.beginPath(); g.arc(ex, ey + r * .32, r * .7, Math.PI * 1.15, Math.PI * 1.85); g.stroke();
+      g.restore();
     }
     // brows
     if (cur.brow > .02) {
@@ -282,41 +285,178 @@ function draw(now, mo) {
       const inner = -side;
       const innerY = by - cur.sad * r * .32, outerY = by + cur.sad * r * .12;
       const xIn = ex + inner * r * .62, xOut = ex - inner * r * .62;
-      ctx.save(); ctx.globalAlpha = cur.dim * cur.brow * .85;
-      ctx.strokeStyle = col; ctx.lineWidth = r * .1;
-      ctx.beginPath(); ctx.moveTo(xOut, outerY); ctx.quadraticCurveTo(ex, by - r * .2, xIn, innerY); ctx.stroke();
-      ctx.restore();
+      g.save(); g.globalAlpha = cur.dim * cur.brow * .85;
+      g.strokeStyle = col; g.lineWidth = r * .1;
+      g.beginPath(); g.moveTo(xOut, outerY); g.quadraticCurveTo(ex, by - r * .2, xIn, innerY); g.stroke();
+      g.restore();
     }
   }
   // mouth
   const my = cy + r * 1.45, mw = r * cur.mw, curve = cur.curve * r * .55, open = mo * r * .55;
-  ctx.save(); ctx.globalAlpha = cur.dim;
-  ctx.strokeStyle = col; ctx.fillStyle = col; ctx.shadowColor = col; ctx.shadowBlur = r * .3;
+  g.save(); g.globalAlpha = cur.dim;
+  g.strokeStyle = col; g.fillStyle = col; g.shadowColor = col; g.shadowBlur = r * .3;
   if (open > r * .03 && Math.abs(curve) < r * .12 && !talking) {
-    ctx.beginPath(); ctx.ellipse(cx, my + open * .4, Math.max(mw, r * .18) * .75, open * .9, 0, 0, Math.PI * 2); ctx.fill();
+    g.beginPath(); g.ellipse(cx, my + open * .4, Math.max(mw, r * .18) * .75, open * .9, 0, 0, Math.PI * 2); g.fill();
   } else if (open > r * .03) {
     const w = Math.max(mw, r * .22);
-    ctx.beginPath();
-    ctx.moveTo(cx - w, my);
-    ctx.quadraticCurveTo(cx, my + curve * .4, cx + w, my);
-    ctx.quadraticCurveTo(cx, my + curve + open * 2, cx - w, my);
-    ctx.fill();
+    g.beginPath();
+    g.moveTo(cx - w, my);
+    g.quadraticCurveTo(cx, my + curve * .4, cx + w, my);
+    g.quadraticCurveTo(cx, my + curve + open * 2, cx - w, my);
+    g.fill();
   } else {
-    ctx.lineWidth = r * .13;
-    ctx.beginPath(); ctx.moveTo(cx - mw, my); ctx.quadraticCurveTo(cx, my + curve * 2, cx + mw, my); ctx.stroke();
+    g.lineWidth = r * .13;
+    g.beginPath(); g.moveTo(cx - mw, my); g.quadraticCurveTo(cx, my + curve * 2, cx + mw, my); g.stroke();
   }
-  ctx.restore();
+  g.restore();
   // zzz
   if (mood === 'asleep') {
-    ctx.save(); ctx.fillStyle = col; ctx.font = `600 ${r * .45}px 'Barlow Condensed',sans-serif`;
+    g.save(); g.fillStyle = col; g.font = `600 ${r * .45}px 'Barlow Condensed',sans-serif`;
     for (let i = 0; i < 3; i++) {
       const t = ((now / 2600) + i / 3) % 1;
-      ctx.globalAlpha = .45 * Math.sin(t * Math.PI);
-      ctx.fillText('z', cx + gap + r * (.9 + t * .9), ey - r * (.4 + t * 1.6));
+      g.globalAlpha = .45 * Math.sin(t * Math.PI);
+      g.fillText('z', cx + gap + r * (.9 + t * .9), ey - r * (.4 + t * 1.6));
     }
+    g.restore();
+  }
+  g.globalAlpha = 1;
+}
+
+// ---------- face styles ----------
+const FACE_NAMES = {classic:'Classic eyes', orb:'Hologram orb', wave:'Sound wave', pixel:'Pixel LED'};
+const faceOf = (id = S.persona) => FACE_NAMES[S.pface[id]] ? S.pface[id] : ((PERSONAS[id] || {}).face || 'classic');
+function draw(now, mo) {
+  const f = faceOf();
+  if (f === 'orb') drawOrb(now, mo); else if (f === 'wave') drawWave(now, mo); else if (f === 'pixel') drawPixel(now, mo); else drawClassic(now, mo);
+}
+// a soft glowing dot in the face colour, drawn once and reused (much faster than shadows)
+let spriteCol = '', sprite = null;
+function glowSprite() {
+  if (spriteCol === S.color && sprite) return sprite;
+  sprite = document.createElement('canvas'); sprite.width = sprite.height = 64;
+  const g = sprite.getContext('2d'), gr = g.createRadialGradient(32, 32, 0, 32, 32, 32);
+  gr.addColorStop(0, S.color); gr.addColorStop(.22, S.color + 'cc'); gr.addColorStop(.5, S.color + '33'); gr.addColorStop(1, S.color + '00');
+  g.fillStyle = gr; g.fillRect(0, 0, 64, 64); spriteCol = S.color; return sprite;
+}
+const faceBox = () => { const s = Math.min(W, H) * (1 - .2 * cur.cap); return {cx:W / 2, cy:H * (.46 - .08 * cur.cap), s}; };
+
+// Hologram orb: a spinning sphere of light points with orbit rings. Spins up when thinking, ripples with the voice.
+const ORB = []; { const n = 620, ga = Math.PI * (3 - Math.sqrt(5)); for (let i = 0; i < n; i++) { const y = 1 - (i / (n - 1)) * 2, r = Math.sqrt(1 - y * y), t = i * ga; ORB.push([Math.cos(t) * r, y, Math.sin(t) * r, Math.random()]); } }
+let orbRot = 0, orbSpin = .25, orbLast = 0, orbPulse = 0;
+function drawOrb(now, mo) {
+  const dt = Math.min(.1, (now - (orbLast || now)) / 1000); orbLast = now;
+  ctx.globalCompositeOperation = 'source-over'; ctx.fillStyle = '#000'; ctx.fillRect(0, 0, W, H);
+  const {cx, cy, s} = faceBox();
+  const target = thinking ? 2.4 : listening ? .6 : mood === 'asleep' ? .04 : mood === 'sleepy' ? .1 : mood === 'sad' ? .12 : talking ? .45 : .22;
+  orbSpin += (target - orbSpin) * Math.min(1, dt * 2); orbRot += orbSpin * dt;
+  const voice = talking ? mo : 0; orbPulse += (voice - orbPulse) * Math.min(1, dt * 14);
+  const breathe = listening ? .035 * Math.sin(now / 260) : .012 * Math.sin(now / 900);
+  const R = s * .32 * (.9 + cur.scale * .1) * (1 + breathe + orbPulse * .14);
+  const tilt = .38 + cur.ly * .35 - cur.sad * .25, yaw = cur.lx * .6;
+  const ct = Math.cos(tilt), st = Math.sin(tilt), spr = glowSprite();
+  const dim = cur.dim * (1 - blink * .25);
+  ctx.globalCompositeOperation = 'lighter';
+  // core
+  const kx = cx + cur.lx * R * .22, ky = cy + cur.ly * R * .22, cr = R * (.42 + orbPulse * .35 + cur.happy * .08);
+  const core = ctx.createRadialGradient(kx, ky, 0, kx, ky, cr);
+  core.addColorStop(0, S.color + 'cc'); core.addColorStop(.4, S.color + '44'); core.addColorStop(1, S.color + '00');
+  ctx.globalAlpha = dim * (.35 + cur.happy * .25 + orbPulse * .45); ctx.fillStyle = core; ctx.beginPath(); ctx.arc(kx, ky, cr, 0, Math.PI * 2); ctx.fill();
+  // points
+  const base = Math.max(1.2, R / 95);
+  for (const [x0, y0, z0, rnd] of ORB) {
+    const a = orbRot + yaw, ca = Math.cos(a), sa = Math.sin(a);
+    let x = x0 * ca + z0 * sa, z = -x0 * sa + z0 * ca, y = y0;
+    const y2 = y * ct - z * st; z = y * st + z * ct; y = y2;
+    const wob = 1 + orbPulse * .22 * Math.sin(y0 * 7 + now / 85 + x0 * 5) + (thinking ? .03 * Math.sin(now / 120 + rnd * 20) : 0);
+    const depth = (z + 1) / 2;
+    let al = (.1 + .75 * depth * depth) * dim;
+    if (cur.happy > .05) al *= 1 + cur.happy * .9 * Math.max(0, Math.sin(now / 160 + rnd * 40));
+    const sz = base * (1 + depth * 1.6) * (rnd < .06 ? 1.8 : 1);
+    ctx.globalAlpha = Math.min(1, al);
+    ctx.drawImage(spr, cx + x * R * wob - sz * 2, cy + y * R * wob - sz * 2, sz * 4, sz * 4);
+  }
+  // orbit rings (broken arcs, each turning its own way)
+  ctx.strokeStyle = S.color; ctx.lineCap = 'round';
+  [[1.22, .28, 1, .5], [1.38, -.55, -.7, .3], [1.08, 1.2, .45, .22]].forEach(([rr, tl, sp, al], i) => {
+    const ang = orbRot * sp * (thinking ? 1.6 : 1) + i;
+    ctx.globalAlpha = dim * al * (1 + orbPulse); ctx.lineWidth = Math.max(1, R * (.012 + i * .004));
+    for (let k = 0; k < 4; k++) { ctx.beginPath(); ctx.ellipse(cx, cy, R * rr, R * rr * Math.abs(Math.sin(tl + cur.ly * .2)) + 1, tl * .4, ang + k * Math.PI / 2, ang + k * Math.PI / 2 + Math.PI * (.28 + .1 * i)); ctx.stroke(); }
+  });
+  ctx.globalCompositeOperation = 'source-over'; ctx.globalAlpha = 1;
+  if (mood === 'asleep') drawZzz(now, cx + R * 1.1, cy - R * .6, R * .22);
+}
+function drawZzz(now, x, y, size) {
+  ctx.save(); ctx.fillStyle = S.color; ctx.font = `600 ${size}px 'Barlow Condensed',sans-serif`;
+  for (let i = 0; i < 3; i++) { const t = ((now / 2600) + i / 3) % 1; ctx.globalAlpha = .45 * Math.sin(t * Math.PI); ctx.fillText('z', x + size * 2 * t, y - size * 3.5 * t); }
+  ctx.restore();
+}
+
+// Sound wave: two small capsule eyes over a glowing line that moves with the voice and smiles or frowns with the mood.
+function drawWave(now, mo) {
+  ctx.fillStyle = '#000'; ctx.fillRect(0, 0, W, H);
+  const {cx, cy, s} = faceBox(), L = Math.min(W * .78, s * 1.5), col = S.color, dim = cur.dim;
+  // eyes
+  const er = s * .055, eh = er * 2.2 * cur.scale * Math.max(.08, cur.open * (1 - blink)) * (1 - cur.happy * .55), ex = s * .22, ey = cy - s * .2;
+  ctx.save(); ctx.fillStyle = col; ctx.shadowColor = col; ctx.shadowBlur = er * 1.2; ctx.globalAlpha = dim;
+  for (const side of [-1, 1]) {
+    const x = cx + side * ex + cur.lx * er * 1.2, y = ey + cur.ly * er * .8 - cur.happy * er * .4;
+    const w = er * 1.25, hh = Math.max(w * .5, eh), sadTilt = cur.sad * side * .25;
+    ctx.save(); ctx.translate(x, y); ctx.rotate(sadTilt);
+    ctx.globalAlpha = dim * (1 - cur.happy); ctx.beginPath();
+    if (ctx.roundRect) ctx.roundRect(-w / 2, -hh / 2, w, hh, w / 2); else ctx.rect(-w / 2, -hh / 2, w, hh);
+    ctx.fill();
+    if (cur.happy > .02) { ctx.globalAlpha = dim * cur.happy; ctx.strokeStyle = col; ctx.lineWidth = er * .55; ctx.lineCap = 'round'; ctx.beginPath(); ctx.arc(0, er * .5, er * 1.1, Math.PI * 1.2, Math.PI * 1.8); ctx.stroke(); }
     ctx.restore();
   }
-  ctx.globalAlpha = 1;
+  ctx.restore();
+  // the wave
+  const amp = talking ? s * (.012 + mo * .14) : listening ? s * (.018 + .012 * Math.sin(now / 200)) : mood === 'asleep' ? 0 : s * .008;
+  const speed = talking ? 1 / 70 : listening ? 1 / 160 : 1 / 420, smile = cur.curve * s * .06;
+  const layers = [[1, 1, 2.2, 0], [.45, .7, 3.7, 1.7], [.25, 1.3, 5.3, 3.1]];
+  ctx.save(); ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.shadowColor = col; ctx.shadowBlur = s * .025;
+  for (const [al, ampK, freq, ph] of layers) {
+    ctx.globalAlpha = dim * al * (mood === 'asleep' ? .35 + .2 * Math.sin(now / 1500) : 1);
+    ctx.strokeStyle = col; ctx.lineWidth = Math.max(1.5, s * (al > .9 ? .012 : .006));
+    ctx.beginPath();
+    for (let i = 0; i <= 120; i++) {
+      const t = i / 120, x = cx - L / 2 + t * L, env = Math.sin(Math.PI * t) ** 1.5;
+      const y = cy + s * .08 - smile * (1 - (2 * t - 1) ** 2) * -1 + (smile * 0) + amp * ampK * env * (Math.sin(t * freq * Math.PI * 2 + now * speed + ph) + .4 * Math.sin(t * freq * 5.1 - now * speed * 1.7));
+      if (i) ctx.lineTo(x, y); else ctx.moveTo(x, y);
+    }
+    ctx.stroke();
+  }
+  if (thinking) { // a bright dot running along the line
+    const t = (Math.sin(now / 380) + 1) / 2, x = cx - L / 2 + t * L;
+    ctx.globalAlpha = dim; ctx.fillStyle = '#fff'; ctx.shadowBlur = s * .05; ctx.beginPath(); ctx.arc(x, cy + s * .08 + smile * (1 - (2 * t - 1) ** 2), s * .012, 0, Math.PI * 2); ctx.fill();
+  }
+  ctx.restore();
+  if (mood === 'asleep') drawZzz(now, cx + ex + er * 2, ey - er, s * .05);
+}
+
+// Pixel LED: the classic face drawn small, then shown as a glowing dot-matrix display.
+const pxCanvas = document.createElement('canvas'), pxCtx = pxCanvas.getContext('2d', {willReadFrequently:true});
+let pxGrid = null;
+function drawPixel(now, mo) {
+  const cols = W > H ? 64 : 40, cell = W / cols, rows = Math.ceil(H / cell);
+  if (pxCanvas.width !== cols || pxCanvas.height !== rows) { pxCanvas.width = cols; pxCanvas.height = rows; pxGrid = null; }
+  drawClassic(now, mo, pxCtx, cols, rows);
+  const d = pxCtx.getImageData(0, 0, cols, rows).data;
+  if (!pxGrid || pxGrid.c !== S.color || pxGrid.w !== W || pxGrid.h !== H) { // the unlit LEDs, drawn once
+    pxGrid = document.createElement('canvas'); pxGrid.width = W * DPR; pxGrid.height = H * DPR; pxGrid.c = S.color; pxGrid.w = W; pxGrid.h = H;
+    const g = pxGrid.getContext('2d'); g.scale(DPR, DPR); g.fillStyle = '#000'; g.fillRect(0, 0, W, H);
+    g.fillStyle = S.color; g.globalAlpha = .07;
+    for (let y = 0; y < rows; y++) for (let x = 0; x < cols; x++) { g.beginPath(); g.arc(x * cell + cell / 2, y * cell + cell / 2, cell * .34, 0, Math.PI * 2); g.fill(); }
+  }
+  ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.drawImage(pxGrid, 0, 0); ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  const spr = glowSprite();
+  ctx.globalCompositeOperation = 'lighter';
+  for (let y = 0; y < rows; y++) for (let x = 0; x < cols; x++) {
+    const i = (y * cols + x) * 4, v = Math.max(d[i], d[i + 1], d[i + 2]) / 255;
+    if (v < .28) continue;
+    ctx.globalAlpha = Math.min(1, v * 1.15);
+    const sz = cell * 1.25; ctx.drawImage(spr, x * cell + cell / 2 - sz / 2, y * cell + cell / 2 - sz / 2, sz, sz);
+  }
+  ctx.globalCompositeOperation = 'source-over'; ctx.globalAlpha = 1;
 }
 requestAnimationFrame(frame);
 
@@ -328,8 +468,22 @@ canvas.addEventListener('pointermove', e => {
     lookUntil = performance.now() + 1500;
   }
 });
-canvas.addEventListener('pointerdown', () => { downAt = performance.now(); });
-canvas.addEventListener('pointerup', () => {
+let downX = 0, downY = 0;
+canvas.addEventListener('pointerdown', e => { downAt = performance.now(); downX = e.clientX; downY = e.clientY; });
+function cycleFace(dir) {
+  const keys = Object.keys(FACE_NAMES), i = keys.indexOf(faceOf());
+  setFace(keys[(i + dir + keys.length) % keys.length]);
+}
+let faceMsgUntil = 0;
+function setFace(f) {
+  if (!FACE_NAMES[f]) return false;
+  S.pface[S.persona] = f; save(); setStatus('Face: ' + FACE_NAMES[f]); faceMsgUntil = performance.now() + 2500;
+  setTimeout(() => { if (performance.now() >= faceMsgUntil && !talking && !busy && !listening) setStatus(readyText()); }, 2600);
+  return true;
+}
+canvas.addEventListener('pointerup', e => {
+  const dx = e.clientX - downX, dy = e.clientY - downY;
+  if (Math.abs(dx) > Math.min(W * .22, 160) && Math.abs(dy) < Math.abs(dx) * .7 && performance.now() - downAt < 800) { activity(); showBar(); cycleFace(dx < 0 ? 1 : -1); return; }
   const wasAsleep = mood === 'asleep' || mood === 'sleepy';
   activity(); showBar();
   if (!wasAsleep && performance.now() - downAt < 300 && !talking && !listening && !thinking && barShownFor() > 600) setMood('happy', 1500);
@@ -397,7 +551,7 @@ function systemPrompt() {
   const now = new Date().toLocaleString('en-GB', {weekday:'long', day:'numeric', month:'long', year:'numeric', hour:'2-digit', minute:'2-digit'});
   return `You are Claude, speaking as the voice of ${S.user}'s home robot: a small desk robot whose face is an old phone screen. ` +
     persona().prompt() +
-    (inClaude ? '' : `If ${S.user} asks you to change personality or voice (for example "talk like a pirate", "be Rocky", "back to normal"), use the set_personality tool, then reply in the new character. Personalities: ${Object.keys(PERSONAS).filter(k => k !== 'custom' || S.cDesc).map(k => `${k} (${personaName(k)})`).join(', ')}; "normal" means butler. `) +
+    (inClaude ? '' : `If ${S.user} asks you to change personality or voice (for example "talk like a pirate", "be Rocky", "back to normal"), use the set_personality tool, then reply in the new character. If asked to change your face or look, use set_face (classic eyes, hologram orb, sound wave, or pixel LED). Personalities: ${Object.keys(PERSONAS).filter(k => k !== 'custom' || S.cDesc).map(k => `${k} (${personaName(k)})`).join(', ')}; "normal" means butler. `) +
     `Your words are spoken aloud, so answer in one to three short sentences of plain speech: no lists, no markdown, no emoji. ` +
     (inClaude ? `If asked for live information you cannot see (weather, news, scores), say briefly that you are not connected to that here. ` : `You can search the web for live information such as weather, news, sports scores, opening times and travel; search when needed and give just the answer, briefly, without reading out web addresses. ${S.user}'s home is ${S.town}, UK, so use that for weather and anything local unless told otherwise. You cannot see his calendar or email yet. `) +
     (inClaude ? '' : `You have a front camera. When a question needs sight, use the look tool to take a photo rather than saying you cannot see; describe only what is useful, kindly and briefly. ${camStream ? (performance.now() - camSeenAt < 3000 ? 'Right now the camera senses someone in front of you. ' : 'Right now the camera senses no one in front of you. ') : ''}`) +
@@ -418,9 +572,10 @@ async function ask(text) {
     const search = {type:'web_search_20250305', name:'web_search', max_uses:3,
       user_location:{type:'approximate', city:S.town || 'Hay-on-Wye', region:'Wales', country:'GB', timezone:'Europe/London'}};
     const lookTool = {name:'look', description:"Take a photo with the robot's front camera and see it. Use this whenever answering needs sight: who is there, what someone is holding or wearing, how they look, what is in front of you, or reading something held up to the camera.", input_schema:{type:'object', properties:{}}};
+    const faceTool = {name:'set_face', description:"Change how the robot's face looks when the user asks: classic (eyes and mouth), orb (spinning hologram orb of light), wave (sound-wave line with small eyes), pixel (glowing dot-matrix LED face).", input_schema:{type:'object', properties:{face:{type:'string', enum:Object.keys(FACE_NAMES)}}, required:['face']}};
     const personaTool = {name:'set_personality', description:"Switch the robot's personality, voice and face colour when the user asks for a different character.", input_schema:{type:'object', properties:{personality:{type:'string', enum:Object.keys(PERSONAS)}}, required:['personality']}};
     const call = async (msgs, withSearch) => {
-      const body = {model:S.model, max_tokens:500, system:systemPrompt(), messages:msgs, tools:[lookTool, personaTool]};
+      const body = {model:S.model, max_tokens:500, system:systemPrompt(), messages:msgs, tools:[lookTool, personaTool, faceTool]};
       if (withSearch) body.tools.push(search);
       return fetch('https://api.anthropic.com/v1/messages', {
         method:'POST',
@@ -444,6 +599,9 @@ async function ask(text) {
           results.push({type:'tool_result', tool_use_id:b.id, content: shot
             ? [{type:'image', source:{type:'base64', media_type:'image/jpeg', data:shot}}]
             : 'The camera could not take a photo (it may be blocked or busy).'});
+        } else if (b.name === 'set_face') {
+          const ok = setFace(b.input && b.input.face);
+          results.push({type:'tool_result', tool_use_id:b.id, content: ok ? `Face changed to ${FACE_NAMES[b.input.face]}.` : 'No such face.', is_error:!ok});
         } else if (b.name === 'set_personality') {
           const id = b.input && b.input.personality;
           if (!PERSONAS[id]) results.push({type:'tool_result', tool_use_id:b.id, content:'No such personality.', is_error:true});
@@ -930,6 +1088,7 @@ function openSheet() {
   $('personaNote').textContent = persona().note;
   $('customBox').style.display = S.persona === 'custom' ? '' : 'none';
   $('cName').value = S.cName || ''; $('cDesc').value = S.cDesc || '';
+  $('faceStyle').innerHTML = Object.keys(FACE_NAMES).map(k => `<option value="${k}">${FACE_NAMES[k]}</option>`).join(''); $('faceStyle').value = faceOf();
   $('elKey').value = S.elKey; $('mxKey').value = S.mxKey || ''; fillVoiceList();
   $('elVoice').value = voiceChoice(); if (!$('elVoice').value) $('elVoice').value = 'custom';
   showVoiceNote(); vxInfo();
@@ -976,6 +1135,7 @@ function vxInfo(msg) {
   $('vxCopy').style.display = have === MY_VOICES.length ? 'none' : '';
   $('vxInfo').textContent = msg || (S.vx.length ? 'Your Voxtral voices: ' + S.vx.map(v => v.name).join(', ') + '. Pick them in the voice list above.' : 'Voxtral copies a voice from a short recording (5 to 25 seconds). Only use voices you have permission to copy: your own, family who agree, or voices you designed.');
 }
+$('faceStyle').addEventListener('change', () => { S.pface[S.persona] = $('faceStyle').value; save(); });
 $('elVoice').addEventListener('change', () => { showVoiceNote(); if (voiceKind($('elVoice').value).kind === 'kokoro' && !inClaude) getKokoro().catch(() => {}); });
 $('vxCopy').addEventListener('click', async () => {
   S.mxKey = $('mxKey').value.trim(); save();

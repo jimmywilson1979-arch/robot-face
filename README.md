@@ -5,6 +5,7 @@ The face of James's home robot: an old Android phone becomes the robot's head, a
 **Open it:** https://jimmywilson1979-arch.github.io/robot-face/
 
 ## What it does
+- **Face styles** (Settings → Face style, saved per personality): **Classic eyes**, **Hologram orb** (an original spinning sphere of light points with orbit rings; it spins up while thinking, pulses while listening and ripples with the voice), **Sound wave** (a glowing line that moves with the voice, with small eyes), and **Pixel LED** (the classic face on a glowing dot-matrix display). Swipe left or right across the face to flick between them, or just ask ("change your face to the orb").
 - Animated face with expressions: happy, listening, thinking, curious, surprised, sad, sleepy, asleep
 - Talk (speech recognition) or type; Claude replies in a calm British-butler voice and the face shows its mood
 - Web search for live info (weather, news, scores), localised to your home town
