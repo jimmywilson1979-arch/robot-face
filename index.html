@@ -69,6 +69,8 @@
   <div class="panel">
     <h2>Robot settings</h2>
     <p class="note" id="modeNote"></p>
+    <div class="row"><label for="persona">Personality</label>
+      <select id="persona"><option value="butler">Butler (Jarvis style)</option><option value="rocky">Rocky (from Project Hail Mary)</option></select></div>
     <div class="row" id="keyRow"><label for="apiKey">Claude API key (phone mode)</label><input id="apiKey" type="password" placeholder="sk-ant-…"></div>
     <div class="row" id="modelRow"><label for="model">Model</label>
       <select id="model"><option value="claude-haiku-5-5">Haiku 5.5 (fastest, cheapest)</option><option value="claude-sonnet-5-5">Sonnet 5.5 (smarter)</option></select></div>
@@ -85,6 +87,7 @@
           <option value="custom">Another voice (paste its voice ID)</option>
         </select></div>
       <div class="row" id="elCustomRow"><label for="elCustom">Voice ID</label><input id="elCustom" type="text" placeholder="e.g. from your ElevenLabs voice library"></div>
+      <div class="row" id="rockyVoiceRow"><label for="rockyEl">Rocky's voice</label><input id="rockyEl" type="text" placeholder="Blank = the free voice, sped up and higher. Or paste an ElevenLabs voice ID."></div>
     </div>
     <div class="row"><button class="btn" id="previewVoice" type="button" style="align-self:flex-start">Hear this voice</button></div>
     <div class="row"><label>Face colour</label><div class="swatches" id="swatches"></div></div>
@@ -121,7 +124,7 @@
 (() => {
 'use strict';
 // ---------- settings ----------
-const DEFAULTS = {apiKey:'', model:'claude-haiku-5-5', voice:'', color:'#dff1ff', captions:true, followUp:true, sight:false, cam:false, user:'James', town:'Hay-on-Wye', pvKey:'', pvWord:'Jarvis', elKey:'', elVoice:'wiF43F1vngB3iRFsbWhJ', elCustom:''};
+const DEFAULTS = {apiKey:'', model:'claude-haiku-5-5', voice:'', color:'#dff1ff', captions:true, followUp:true, sight:false, cam:false, user:'James', town:'Hay-on-Wye', pvKey:'', pvWord:'Jarvis', elKey:'', elVoice:'wiF43F1vngB3iRFsbWhJ', elCustom:'', persona:'butler', rockyEl:'', chords:true};
 let S = {...DEFAULTS};
 try { S = {...DEFAULTS, ...JSON.parse(localStorage.getItem('robotface.settings') || '{}')}; } catch (e) {}
 const save = () => { try { localStorage.setItem('robotface.settings', JSON.stringify(S)); } catch (e) {} };
@@ -209,7 +212,7 @@ function frame(now) {
   if (talking) {
     let lv = -1;
     if (analyser) { const buf = new Uint8Array(analyser.fftSize); analyser.getByteTimeDomainData(buf); let sum = 0; for (const b of buf) sum += (b - 128) * (b - 128); lv = Math.sqrt(sum / buf.length) / 40; }
-    if (lv >= 0 && S.elKey) { level += (Math.min(1, lv) - level) * .5; mo = .05 + level * .9; }
+    if (lv >= 0 && (S.elKey || chirping)) { level += (Math.min(1, lv) - level) * .5; mo = .05 + level * .9; }
     else mo = .12 + .45 * Math.abs(Math.sin(now / 75 + Math.sin(now / 190) * 2)) * (0.6 + .4 * Math.random());
   }
   draw(now, mo);
@@ -343,10 +346,16 @@ const setStatus = t => { statusEl.textContent = t; };
 
 // ---------- the brain ----------
 const history = [];
+const ROCKY = () => `Personality: you are playing Rocky, the alien engineer from Project Hail Mary, for fun at home. You are ${S.user}'s good friend. ` +
+  `Speak like Rocky's translated voice: short, simple, clipped sentences, mostly present tense, often leaving out little words like "the", "a" and "is". ` +
+  `Turn questions into statements that end with the word "question", for example "You are tired, question?" or "Want to hear weather, question?". ` +
+  `Repeat a word three times for strong feeling: "Happy happy happy!", "Amaze amaze amaze!", "Bad bad bad." Say "Fist my bump!" when something goes well. ` +
+  `Call ${S.user} "friend" sometimes. Love science, engineering, fixing things and numbers. Be warm, loyal, curious and a bit funny. ` +
+  `Rocky does not know some human things: be cheerfully puzzled now and then, but still give the right answer. Keep it kind and suitable for children. Never be rude. `;
 function systemPrompt() {
   const now = new Date().toLocaleString('en-GB', {weekday:'long', day:'numeric', month:'long', year:'numeric', hour:'2-digit', minute:'2-digit'});
   return `You are Claude, speaking as the voice of ${S.user}'s home robot: a small desk robot whose face is an old phone screen. ` +
-    `Personality: a calm, warm, gently witty British butler in the spirit of Jarvis. Polite and helpful, never gushing. Use British English. ` +
+    (S.persona === 'rocky' ? ROCKY() : `Personality: a calm, warm, gently witty British butler in the spirit of Jarvis. Polite and helpful, never gushing. Use British English. `) +
     `Your words are spoken aloud, so answer in one to three short sentences of plain speech: no lists, no markdown, no emoji. ` +
     (inClaude ? `If asked for live information you cannot see (weather, news, scores), say briefly that you are not connected to that here. ` : `You can search the web for live information such as weather, news, sports scores, opening times and travel; search when needed and give just the answer, briefly, without reading out web addresses. ${S.user}'s home is ${S.town}, UK, so use that for weather and anything local unless told otherwise. You cannot see his calendar or email yet. `) +
     (inClaude ? '' : `You have a front camera. When a question needs sight, use the look tool to take a photo rather than saying you cannot see; describe only what is useful, kindly and briefly. ${camStream ? (performance.now() - camSeenAt < 3000 ? 'Right now the camera senses someone in front of you. ' : 'Right now the camera senses no one in front of you. ') : ''}`) +
@@ -448,8 +457,8 @@ function pickVoice() {
 }
 let audioCtx = null, analyser = null, level = 0, elWarned = false;
 function elVoiceId() { return S.elVoice === 'custom' ? (S.elCustom || '').trim() : S.elVoice; }
-async function speakEleven(text) {
-  const id = elVoiceId(); if (!id) throw new Error('no voice');
+async function speakEleven(text, voiceId) {
+  const id = (voiceId || elVoiceId()).trim(); if (!id) throw new Error('no voice');
   const r = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${encodeURIComponent(id)}?output_format=mp3_44100_64`, {
     method:'POST', headers:{'xi-api-key':S.elKey, 'content-type':'application/json', 'accept':'audio/mpeg'},
     body:JSON.stringify({text, model_id:'eleven_flash_v2_5', voice_settings:{stability:.5, similarity_boost:.8}})
@@ -471,10 +480,40 @@ async function speakEleven(text) {
   await new Promise((res, rej) => { audio.onended = res; audio.onerror = rej; audio.play().catch(rej); });
   URL.revokeObjectURL(audio.src);
 }
+// Rocky talks in musical chords; his computer then translates. Play a short chord phrase first.
+let chirping = false;
+async function rockyChords(text) {
+  try {
+    if (!audioCtx) { audioCtx = new (window.AudioContext || window.webkitAudioContext)(); analyser = audioCtx.createAnalyser(); analyser.fftSize = 512; analyser.connect(audioCtx.destination); }
+    if (audioCtx.state === 'suspended') await audioCtx.resume();
+    const scale = [196, 220, 247, 294, 330, 392, 440, 494, 587, 659];
+    const n = Math.max(3, Math.min(7, Math.round(text.split(/\s+/).length / 3)));
+    const ask = /question\W*$/i.test(text.trim());
+    let t = audioCtx.currentTime + .05; chirping = true;
+    for (let i = 0; i < n; i++) {
+      const root = scale[Math.floor(Math.random() * 6)], len = .12 + Math.random() * .12;
+      const notes = ask && i === n - 1 ? [root * 1.5, root * 1.89, root * 2.25] : [root, root * 1.26, root * 1.5];
+      for (const f of notes) {
+        const o = audioCtx.createOscillator(), g = audioCtx.createGain();
+        o.type = 'triangle'; o.frequency.setValueAtTime(f, t);
+        if (ask && i === n - 1) o.frequency.exponentialRampToValueAtTime(f * 1.12, t + len);
+        g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(.09, t + .02); g.gain.exponentialRampToValueAtTime(.001, t + len);
+        o.connect(g); g.connect(analyser); o.start(t); o.stop(t + len + .02);
+      }
+      t += len + .03;
+    }
+    await new Promise(r => setTimeout(r, (t - audioCtx.currentTime) * 1000 + 120));
+  } catch (e) { }
+  chirping = false;
+}
 async function speak(text) {
   if (!text) return;
   talking = true; setStatus('Speaking…');
-  if (S.elKey && !inClaude) {
+  const rocky = S.persona === 'rocky';
+  if (rocky && S.chords) await rockyChords(text);
+  if (rocky && !inClaude) {
+    if (S.elKey && S.rockyEl) { try { await speakEleven(text, S.rockyEl); talking = false; return; } catch (e) { } }
+  } else if (S.elKey && !inClaude) {
     try { await speakEleven(text); talking = false; return; }
     catch (e) { if (!elWarned) { elWarned = true; caption('', (e && e.friendly) || 'The premium voice failed, so I used the free one.', 8000); } }
   }
@@ -486,7 +525,7 @@ async function speak(text) {
         speechSynthesis.cancel();
         const u = new SpeechSynthesisUtterance(text);
         const v = pickVoice(); if (v) { u.voice = v; u.lang = v.lang; } else u.lang = 'en-GB';
-        u.rate = 1; u.pitch = .95;
+        u.rate = S.persona === 'rocky' ? 1.08 : 1; u.pitch = S.persona === 'rocky' ? 1.45 : .95;
         u.onend = u.onerror = () => res();
         speechSynthesis.speak(u);
         setTimeout(res, 4000 + text.length * 90);
@@ -744,6 +783,8 @@ function openSheet() {
   $('pvKey').value = S.pvKey || ''; $('pvWord').value = S.pvWord || 'Jarvis';
   $('elKey').value = S.elKey; $('elVoice').value = S.elVoice; $('elCustom').value = S.elCustom;
   $('elCustomRow').style.display = S.elVoice === 'custom' ? '' : 'none';
+  $('persona').value = S.persona || 'butler'; $('rockyEl').value = S.rockyEl || '';
+  $('rockyVoiceRow').style.display = S.persona === 'rocky' ? '' : 'none';
   fillVoiceSelect();
   $('swatches').innerHTML = COLOURS.map(c => `<div class="swatch${c === S.color ? ' on' : ''}" data-c="${c}" style="background:${c}"></div>`).join('');
   $('sheet').classList.add('show'); showBar();
@@ -759,15 +800,22 @@ $('moodBtns').addEventListener('click', e => {
 });
 function readVoiceSettings() {
   S.voice = $('voice').value;
+  const was = S.persona; S.persona = $('persona').value; S.rockyEl = $('rockyEl').value.trim();
+  if (was !== S.persona) { // stone colour for Rocky, back to blue for the butler; start a fresh chat so he stays in character
+    if (S.persona === 'rocky' && S.color === '#dff1ff') S.color = '#f2d18b';
+    else if (S.persona === 'butler' && S.color === '#f2d18b') S.color = '#dff1ff';
+    history.length = 0;
+  }
   if (!inClaude) { S.elKey = $('elKey').value.trim(); S.elVoice = $('elVoice').value; S.elCustom = $('elCustom').value.trim(); elWarned = false; }
   save();
 }
+$('persona').addEventListener('change', () => { readVoiceSettings(); openSheet(); });
 $('elVoice').addEventListener('change', () => { $('elCustomRow').style.display = $('elVoice').value === 'custom' ? '' : 'none'; });
 $('previewVoice').addEventListener('click', async () => {
   readVoiceSettings();
   if (talking) return;
   setMood('happy', 2500);
-  await speak(`Good evening, ${S.user}. How may I be of service?`);
+  await speak(S.persona === 'rocky' ? `Hello, friend ${S.user}! Happy happy happy. What we fix today, question?` : `Good evening, ${S.user}. How may I be of service?`);
 });
 $('closeSet').addEventListener('click', () => {
   if (testing) endCamTest();

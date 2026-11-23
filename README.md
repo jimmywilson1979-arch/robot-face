@@ -13,6 +13,7 @@ The face of James's home robot: an old Android phone becomes the robot's head, a
 - Sight: Claude can take a photo with the camera when a question needs it ("what am I holding?")
 - Silent wake word ("Jarvis" by default) using Picovoice Porcupine, running on the device; needs a free Picovoice access key
 - Premium ElevenLabs voices with lip-sync (optional)
+- **Two personalities** (Settings → Personality): the **Butler** (Jarvis style), or **Rocky** from *Project Hail Mary* (fan version, home use only). Rocky talks in short clipped sentences, ends questions with "question", says "Happy happy happy!", and plays a little phrase of musical chords before his "translation", with the mouth moving to the chords. The face turns stone-coloured for Rocky. His voice is the free device voice, higher and a bit faster, or paste an ElevenLabs voice ID into "Rocky's voice" (e.g. one you design in ElevenLabs). Switching personality starts a fresh chat.
 - Gets sleepy when left alone, wakes on a tap or when it sees movement
 
 ## Setting it up on the robot phone
