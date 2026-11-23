@@ -79,11 +79,11 @@
       <div class="row"><label for="elKey">ElevenLabs API key (for the premium voices)</label><input id="elKey" type="password" placeholder="sk_…  (leave blank to use the free voice)"></div>
       <div class="row"><label for="elVoice">Premium voice</label>
         <select id="elVoice">
-          <option value="wiF43F1vngB3iRFsbWhJ">Butler – Nathaniel: crisp RP assistant, dry wit</option>
-          <option value="JBFqnCBsd6RMkjVDRZzb">George – warm, mature British</option>
-          <option value="onwK4e9ZLuTAKqWW03F9">Daniel – steady British broadcaster</option>
-          <option value="erjfZbWOeOlXoejyglLN">Lord Alistair – posh British aristocrat</option>
-          <option value="7p1Ofvcwsv7UBPoFNcpI">Julian – deep, rich, mature British</option>
+          <option value="JBFqnCBsd6RMkjVDRZzb">George – warm, mature British (free plan OK)</option>
+          <option value="onwK4e9ZLuTAKqWW03F9">Daniel – steady British broadcaster (free plan OK)</option>
+          <option value="wiF43F1vngB3iRFsbWhJ">Butler – Nathaniel: crisp RP, dry wit (paid plan)</option>
+          <option value="erjfZbWOeOlXoejyglLN">Lord Alistair – posh British aristocrat (paid plan)</option>
+          <option value="7p1Ofvcwsv7UBPoFNcpI">Julian – deep, rich, mature British (paid plan)</option>
           <option value="custom">Another voice (paste its voice ID)</option>
         </select></div>
       <div class="row" id="elCustomRow"><label for="elCustom">Voice ID</label><input id="elCustom" type="text" placeholder="e.g. from your ElevenLabs voice library"></div>
@@ -465,9 +465,12 @@ async function speakEleven(text, voiceId) {
   });
   if (!r.ok) {
     const t = await r.text(); let msg = 'The premium voice failed, so I used the free one.';
-    if (r.status === 401) msg = 'ElevenLabs refused that API key, so I used the free voice. Check it in settings.';
+    if (r.status === 402 || /paid_plan|payment_required|library voice|subscription/i.test(t)) msg = 'That voice needs a paid ElevenLabs plan, so I used the free voice. George and Daniel work on the free plan.';
+    else if (r.status === 401 && /permission/i.test(t)) msg = 'Your ElevenLabs key is missing the text to speech permission. Turn it on for the key in ElevenLabs.';
+    else if (r.status === 401) msg = 'ElevenLabs refused that API key, so I used the free voice. Check it in settings.';
     else if (/voice_not_found|not found/i.test(t)) msg = 'That premium voice is not in your ElevenLabs account yet. Add it to My Voices in ElevenLabs, or pick George or Daniel.';
-    else if (/quota|credits/i.test(t)) msg = 'Your ElevenLabs credits have run out, so I used the free voice.';
+    else if (/quota|credits/i.test(t)) msg = 'Your ElevenLabs credits have run out for this month, so I used the free voice.';
+    console.warn('ElevenLabs', r.status, t);
     throw {friendly: msg};
   }
   const blob = await r.blob();
