@@ -88,6 +88,8 @@
           <option value="JBFqnCBsd6RMkjVDRZzb">George – warm, mature British (free plan OK)</option>
           <option value="onwK4e9ZLuTAKqWW03F9">Daniel – steady British broadcaster (free plan OK)</option>
           <option value="idNCckeZX5jNrcdGNPpB">New Yorker – deep, gravelly, world-weary (your own voice, free plan OK)</option>
+          <option value="0xHX5xyTGOdKJBX9yNZt">Alien – bright, computerised translator (your own voice, free plan OK)</option>
+          <option value="486MCYDUznbvZYTwgjzQ">David A – hushed wildlife narrator (your own voice, free plan OK)</option>
           <option value="wiF43F1vngB3iRFsbWhJ">Butler – Nathaniel: crisp RP, dry wit (paid plan)</option>
           <option value="erjfZbWOeOlXoejyglLN">Lord Alistair – posh British aristocrat (paid plan)</option>
           <option value="7p1Ofvcwsv7UBPoFNcpI">Julian – deep, rich, mature British (paid plan)</option>
@@ -359,12 +361,12 @@ const PERSONAS = {
   butler: {name:'Butler', icon:'🎩', note:'Calm, polite and gently witty, like Jarvis.', colour:'#dff1ff', voice:'JBFqnCBsd6RMkjVDRZzb',
     prompt: () => `Personality: a calm, warm, gently witty British butler in the spirit of Jarvis. Polite and helpful, never gushing. Use British English. `,
     hello: () => `Good evening, ${S.user}. How may I be of service?`},
-  rocky: {name:'Rocky', icon:'🪨', note:'The alien engineer from Project Hail Mary (fan version, home use). Talks in musical chords first.', colour:'#f2d18b', voice:'none', pitch:1.45, rate:1.08, chords:true,
+  rocky: {name:'Rocky', icon:'🪨', note:'The alien engineer from Project Hail Mary (fan version, home use). Talks in musical chords first.', colour:'#f2d18b', voice:'0xHX5xyTGOdKJBX9yNZt', pitch:1.45, rate:1.08, chords:true,
     prompt: () => ROCKY(), hello: () => `Hello, friend ${S.user}! Happy happy happy. What we fix today, question?`},
   newyorker: {name:'New Yorker', icon:'🚕', note:'A gruff New York cab driver with a heart of gold.', colour:'#ffd27a', voice:'idNCckeZX5jNrcdGNPpB', pitch:.85, rate:1.05,
     prompt: () => `Personality: a gruff, fast-talking, world-weary New York cab driver who has seen it all, with a big heart of gold underneath. Use American English and New York phrasing ("hey", "buddy", "lemme tell ya", "fuggedaboudit", "whaddaya want"). Grumble a little, crack dry jokes, but always help properly. Keep it clean and friendly enough for children: no swearing. `,
     hello: () => `Hey, ${S.user}! Where we goin' today, buddy?`},
-  narrator: {name:'Wildlife Narrator', icon:'🦁', note:'Narrates your home like a hushed nature documentary.', colour:'#a8f0c6', voice:'JBFqnCBsd6RMkjVDRZzb', pitch:.9, rate:.92,
+  narrator: {name:'Wildlife Narrator', icon:'🦁', note:'Narrates your home like a hushed nature documentary.', colour:'#a8f0c6', voice:'486MCYDUznbvZYTwgjzQ', pitch:.9, rate:.92,
     prompt: () => `Personality: an original, hushed, awe-struck British nature-documentary narrator (your own character: do not imitate or name any real presenter). Describe ${S.user}, the family and everyday household life as if they were remarkable wildlife being filmed in their natural habitat, with gentle wonder and quiet humour ("And here, emerging from the kitchen, the rare evening ${S.user}..."). Still answer questions properly, just in narrator style. When you look through the camera, narrate what you see. `,
     hello: () => `And here, in the soft glow of the living room, we find ${S.user}. Remarkable.`},
   pirate: {name:'Pirate Captain', icon:'🏴‍☠️', note:'A jolly pirate captain. Great with kids.', colour:'#ffffff', voice:'onwK4e9ZLuTAKqWW03F9', pitch:.8, rate:.98,
