@@ -81,21 +81,17 @@
       <select id="model"><option value="claude-haiku-5-5">Haiku 5.5 (fastest, cheapest)</option><option value="claude-sonnet-5-5">Sonnet 5.5 (smarter)</option></select></div>
     <div class="row"><label for="voice">Free voice (built into this device)</label><select id="voice"></select></div>
     <div id="elBox">
-      <div class="row"><label for="elKey">ElevenLabs API key (for the premium voices)</label><input id="elKey" type="password" placeholder="sk_…  (leave blank to use the free voice)"></div>
-      <div class="row"><label for="elVoice">Voice for this personality</label>
-        <select id="elVoice">
-          <option value="none">Free device voice (no ElevenLabs)</option>
-          <option value="JBFqnCBsd6RMkjVDRZzb">George – warm, mature British (free plan OK)</option>
-          <option value="onwK4e9ZLuTAKqWW03F9">Daniel – steady British broadcaster (free plan OK)</option>
-          <option value="idNCckeZX5jNrcdGNPpB">New Yorker – deep, gravelly, world-weary (your own voice, free plan OK)</option>
-          <option value="0xHX5xyTGOdKJBX9yNZt">Alien – bright, computerised translator (your own voice, free plan OK)</option>
-          <option value="486MCYDUznbvZYTwgjzQ">David A – hushed wildlife narrator (your own voice, free plan OK)</option>
-          <option value="wiF43F1vngB3iRFsbWhJ">Butler – Nathaniel: crisp RP, dry wit (paid plan)</option>
-          <option value="erjfZbWOeOlXoejyglLN">Lord Alistair – posh British aristocrat (paid plan)</option>
-          <option value="7p1Ofvcwsv7UBPoFNcpI">Julian – deep, rich, mature British (paid plan)</option>
-          <option value="custom">Another voice (paste its voice ID)</option>
-        </select></div>
-      <div class="row" id="elCustomRow"><label for="elCustom">Voice ID</label><input id="elCustom" type="text" placeholder="e.g. from your ElevenLabs voice library"></div>
+      <div class="row"><label for="elVoice">Voice for this personality</label><select id="elVoice"></select>
+        <p class="note" id="voiceNote" style="margin:6px 0 0"></p></div>
+      <div class="row" id="elCustomRow"><label for="elCustom">ElevenLabs voice ID</label><input id="elCustom" type="text" placeholder="e.g. from your ElevenLabs voice library"></div>
+      <div class="row"><label for="elKey">ElevenLabs API key (for ElevenLabs voices)</label><input id="elKey" type="password" placeholder="sk_…  (leave blank if you don't use them)"></div>
+      <div class="row"><label for="mxKey">Mistral API key (for Voxtral voices)</label><input id="mxKey" type="password" placeholder="From console.mistral.ai (leave blank if you don't use them)"></div>
+      <div class="row" id="vxRow"><label>Voxtral voices</label>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <button class="btn" id="vxCopy" type="button">Copy my 3 designed voices to Voxtral</button>
+          <button class="btn" id="vxAdd" type="button">Add a voice from a recording</button>
+        </div>
+        <p class="note" id="vxInfo" style="margin:8px 0 0"></p></div>
     </div>
     <div class="row"><label for="speed">Talking speed for this personality: <b id="speedVal">Normal</b></label>
       <div style="display:flex;align-items:center;gap:10px"><span class="note" style="margin:0">🐢</span><input id="speed" type="range" min="0.7" max="1.2" step="0.05" value="1" style="flex:1;accent-color:var(--ink)"><span class="note" style="margin:0">🐇</span>
@@ -135,10 +131,11 @@
 (() => {
 'use strict';
 // ---------- settings ----------
-const DEFAULTS = {apiKey:'', model:'claude-haiku-5-5', voice:'', color:'#dff1ff', captions:true, followUp:true, sight:false, cam:false, user:'James', town:'Hay-on-Wye', pvKey:'', pvWord:'Jarvis', elKey:'', elVoice:'wiF43F1vngB3iRFsbWhJ', elCustom:'', persona:'butler', rockyEl:'', chords:true, pvoice:{}, pcustom:{}, pspeed:{}, cName:'', cDesc:''};
+const DEFAULTS = {apiKey:'', model:'claude-haiku-5-5', voice:'', color:'#dff1ff', captions:true, followUp:true, sight:false, cam:false, user:'James', town:'Hay-on-Wye', pvKey:'', pvWord:'Jarvis', elKey:'', elVoice:'wiF43F1vngB3iRFsbWhJ', elCustom:'', persona:'butler', rockyEl:'', chords:true, pvoice:{}, pcustom:{}, pspeed:{}, mxKey:'', vx:[], cName:'', cDesc:''};
 let S = {...DEFAULTS};
 try { S = {...DEFAULTS, ...JSON.parse(localStorage.getItem('robotface.settings') || '{}')}; } catch (e) {}
 S.pvoice = S.pvoice || {}; S.pcustom = S.pcustom || {}; S.pspeed = S.pspeed || {};
+S.vx = Array.isArray(S.vx) ? S.vx : [];
 const speedOf = (id = S.persona) => Math.min(1.2, Math.max(.7, Number(S.pspeed[id]) || 1));
 if (S.pvoice.butler == null && S.elVoice && S.elVoice !== 'wiF43F1vngB3iRFsbWhJ') { S.pvoice.butler = S.elVoice; S.pcustom.butler = S.elCustom || ''; } // carry over an earlier voice choice
 if (S.rockyEl && S.pvoice.rocky == null) { S.pvoice.rocky = 'custom'; S.pcustom.rocky = S.rockyEl; }
@@ -227,7 +224,7 @@ function frame(now) {
   if (talking) {
     let lv = -1;
     if (analyser) { const buf = new Uint8Array(analyser.fftSize); analyser.getByteTimeDomainData(buf); let sum = 0; for (const b of buf) sum += (b - 128) * (b - 128); lv = Math.sqrt(sum / buf.length) / 40; }
-    if (lv >= 0 && (S.elKey || chirping)) { level += (Math.min(1, lv) - level) * .5; mo = .05 + level * .9; }
+    if (lv >= 0 && (analysing || chirping)) { level += (Math.min(1, lv) - level) * .5; mo = .05 + level * .9; }
     else mo = .12 + .45 * Math.abs(Math.sin(now / 75 + Math.sin(now / 190) * 2)) * (0.6 + .4 * Math.random());
   }
   draw(now, mo);
@@ -507,7 +504,105 @@ function pickVoice() {
 }
 let audioCtx = null, analyser = null, level = 0, elWarned = false;
 function voiceChoice(id = S.persona) { const v = S.pvoice[id]; return v != null && v !== '' ? v : (PERSONAS[id] || PERSONAS.butler).voice; }
-function elVoiceId() { const v = voiceChoice(); return v === 'none' ? '' : v === 'custom' ? (S.pcustom[S.persona] || '').trim() : v; }
+// Voices: 'none' = device voice, 'kokoro:<id>' = free Kokoro on this device, 'vx:<id>' = Voxtral (Mistral), 'custom' or a plain id = ElevenLabs
+const KOKORO = [['bm_george','George – mature British'],['bm_fable','Fable – British storyteller'],['bm_lewis','Lewis – modern British'],['bm_daniel','Daniel – traditional British'],
+  ['bf_emma','Emma – British woman'],['bf_isabella','Isabella – British woman'],['am_michael','Michael – American'],['am_onyx','Onyx – deep, smooth American'],
+  ['am_santa','Santa – warm and jolly'],['am_puck','Puck – playful'],['am_fenrir','Fenrir – strong American'],['af_heart','Heart – warm American woman']];
+const ELEVEN = [['JBFqnCBsd6RMkjVDRZzb','George – warm, mature British (free plan OK)'],['onwK4e9ZLuTAKqWW03F9','Daniel – steady British broadcaster (free plan OK)'],
+  ['idNCckeZX5jNrcdGNPpB','New Yorker – your designed voice (free plan OK)'],['0xHX5xyTGOdKJBX9yNZt','Alien – your designed voice (free plan OK)'],['486MCYDUznbvZYTwgjzQ','David A – your designed voice (free plan OK)'],
+  ['wiF43F1vngB3iRFsbWhJ','Butler – Nathaniel (paid plan)'],['erjfZbWOeOlXoejyglLN','Lord Alistair – posh British (paid plan)'],['7p1Ofvcwsv7UBPoFNcpI','Julian – deep, rich British (paid plan)']];
+const MY_VOICES = [{name:'New Yorker', file:'voices/new-yorker.mp3', el:'idNCckeZX5jNrcdGNPpB'}, {name:'Alien', file:'voices/alien.mp3', el:'0xHX5xyTGOdKJBX9yNZt'}, {name:'David A', file:'voices/narrator.mp3', el:'486MCYDUznbvZYTwgjzQ'}];
+function voiceKind(v = voiceChoice()) {
+  if (!v || v === 'none') return {kind:'device'};
+  if (v.startsWith('kokoro:')) return {kind:'kokoro', id:v.slice(7)};
+  if (v.startsWith('vx:')) return {kind:'voxtral', id:v.slice(3)};
+  if (v === 'custom') return {kind:'eleven', id:(S.pcustom[S.persona] || '').trim()};
+  return {kind:'eleven', id:v};
+}
+function elVoiceId() { const k = voiceKind(); return k.kind === 'eleven' ? k.id : ''; }
+function ensureAudio() {
+  if (!audioCtx) { audioCtx = new (window.AudioContext || window.webkitAudioContext)(); analyser = audioCtx.createAnalyser(); analyser.fftSize = 512; analyser.connect(audioCtx.destination); }
+}
+let analysing = false; // the mouth follows the real sound while this is on
+async function playBlob(blob, rate = 1) {
+  const audio = new Audio(URL.createObjectURL(blob));
+  audio.playbackRate = rate; audio.preservesPitch = true;
+  try { ensureAudio(); if (audioCtx.state === 'suspended') await audioCtx.resume(); audioCtx.createMediaElementSource(audio).connect(analyser); } catch (e) { }
+  analysing = true;
+  try { await new Promise((res, rej) => { audio.onended = res; audio.onerror = rej; audio.play().catch(rej); }); }
+  finally { analysing = false; URL.revokeObjectURL(audio.src); }
+}
+// ----- Kokoro: free voices that run on this device (downloaded once, about 90 MB) -----
+let kokoro = null, kokoroLoading = null, kokoroPct = 0;
+function getKokoro() {
+  if (kokoro) return Promise.resolve(kokoro);
+  if (!kokoroLoading) {
+    kokoroLoading = (async () => {
+      const {KokoroTTS} = await import('https://cdn.jsdelivr.net/npm/kokoro-js@1.2.1/+esm');
+      kokoro = await KokoroTTS.from_pretrained('onnx-community/Kokoro-82M-v1.0-ONNX', {dtype:'q8', device:'wasm',
+        progress_callback: p => { if (p && p.status === 'progress' && /onnx/.test(p.file || '')) { kokoroPct = Math.round(p.progress || 0); if (!talking && !busy) setStatus(`Getting free voices ready… ${kokoroPct}%`); } }});
+      if (!talking && !busy) setStatus(readyText());
+      return kokoro;
+    })();
+    kokoroLoading.catch(() => { kokoroLoading = null; });
+  }
+  return kokoroLoading;
+}
+async function speakKokoro(text, id) {
+  if (!kokoro) { // still downloading: don't keep everyone waiting, use the device voice this time
+    getKokoro().catch(() => {});
+    throw {quiet:true, friendly:`The free Kokoro voice is still downloading (${kokoroPct}%), so I used the device voice this time.`};
+  }
+  const k = kokoro, opts = {voice:id, speed:speedOf()};
+  // say it a sentence at a time: the next sentence is made while this one plays
+  const parts = [];
+  for (const bit of text.match(/[^.!?]+[.!?]+["')]*\s*|[^.!?]+$/g) || [text]) {
+    if (parts.length && parts[parts.length - 1].length < 40) parts[parts.length - 1] += bit; else parts.push(bit);
+  }
+  let next = k.generate(parts[0].trim(), opts);
+  for (let i = 0; i < parts.length; i++) {
+    const out = await next;
+    if (i + 1 < parts.length) next = k.generate(parts[i + 1].trim(), opts);
+    await playBlob(out.toBlob());
+  }
+}
+// ----- Voxtral (Mistral): cheap, clones a voice from a short recording -----
+const b64 = buf => { let s = '', a = new Uint8Array(buf); for (let i = 0; i < a.length; i += 32768) s += String.fromCharCode.apply(null, a.subarray(i, i + 32768)); return btoa(s); };
+async function vxCreate(name, sampleB64, filename) {
+  const r = await fetch('https://api.mistral.ai/v1/audio/voices', {method:'POST', headers:{'Authorization':'Bearer ' + S.mxKey, 'Content-Type':'application/json'},
+    body:JSON.stringify({name, sample_audio:sampleB64, sample_filename:filename || 'sample.mp3', languages:['en']})});
+  const t = await r.text();
+  if (!r.ok) throw {friendly: r.status === 401 ? 'Mistral refused that API key. Check it in settings.' : 'Mistral could not make that voice: ' + t.slice(0, 160), detail:t};
+  return JSON.parse(t).id;
+}
+async function vxSample(v) { // the recording a Voxtral voice was made from, if we still have it
+  if (v.file) return b64(await (await fetch(v.file)).arrayBuffer());
+  try { return localStorage.getItem('robotface.vxs.' + v.id); } catch (e) { return null; }
+}
+async function speakVoxtral(text, id, retried) {
+  if (!S.mxKey) throw {friendly:'Add your Mistral API key in settings to use Voxtral voices, so I used the free voice.'};
+  const r = await fetch('https://api.mistral.ai/v1/audio/speech', {method:'POST', headers:{'Authorization':'Bearer ' + S.mxKey, 'Content-Type':'application/json'},
+    body:JSON.stringify({model:'voxtral-mini-tts-3-0', input:text, voice_id:id, response_format:'mp3'})});
+  if (!r.ok) {
+    const t = await r.text(); console.warn('Voxtral', r.status, t);
+    const v = S.vx.find(x => x.id === id);
+    if (!retried && v && (r.status === 404 || /voice.*not.*found|not found/i.test(t))) { // voice expired on Mistral's side: make it again from its recording
+      const sample = await vxSample(v);
+      if (sample) {
+        const nid = await vxCreate(v.name, sample, v.file ? v.file.split('/').pop() : 'sample.mp3');
+        for (const k of Object.keys(S.pvoice)) if (S.pvoice[k] === 'vx:' + id) S.pvoice[k] = 'vx:' + nid;
+        try { const old = localStorage.getItem('robotface.vxs.' + id); if (old) { localStorage.setItem('robotface.vxs.' + nid, old); localStorage.removeItem('robotface.vxs.' + id); } } catch (e) { }
+        v.id = nid; save(); return speakVoxtral(text, nid, true);
+      }
+    }
+    throw {friendly: r.status === 401 ? 'Mistral refused that API key, so I used the free voice. Check it in settings.'
+      : r.status === 402 || /credit|billing|payment/i.test(t) ? 'Your Mistral account needs credit for Voxtral, so I used the free voice.'
+      : r.status === 429 ? 'Voxtral is busy (too many requests), so I used the free voice.' : 'The Voxtral voice failed, so I used the free one.'};
+  }
+  const j = await r.json();
+  const bytes = Uint8Array.from(atob(j.audio_data), c => c.charCodeAt(0));
+  await playBlob(new Blob([bytes], {type:'audio/mpeg'}), speedOf());
+}
 async function speakEleven(text, voiceId) {
   const id = (voiceId || elVoiceId()).trim(); if (!id) throw new Error('no voice');
   const r = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${encodeURIComponent(id)}?output_format=mp3_44100_64`, {
@@ -524,15 +619,7 @@ async function speakEleven(text, voiceId) {
     console.warn('ElevenLabs', r.status, t);
     throw {friendly: msg};
   }
-  const blob = await r.blob();
-  const audio = new Audio(URL.createObjectURL(blob));
-  try {
-    if (!audioCtx) { audioCtx = new (window.AudioContext || window.webkitAudioContext)(); analyser = audioCtx.createAnalyser(); analyser.fftSize = 512; analyser.connect(audioCtx.destination); }
-    if (audioCtx.state === 'suspended') await audioCtx.resume();
-    audioCtx.createMediaElementSource(audio).connect(analyser);
-  } catch (e) { analyser = null; }
-  await new Promise((res, rej) => { audio.onended = res; audio.onerror = rej; audio.play().catch(rej); });
-  URL.revokeObjectURL(audio.src);
+  await playBlob(await r.blob());
 }
 // Rocky talks in musical chords; his computer then translates. Play a short chord phrase first.
 let chirping = false;
@@ -564,9 +651,15 @@ async function speak(text) {
   if (!text) return;
   talking = true; setStatus('Speaking…');
   if (persona().chords && S.chords) await rockyChords(text);
-  if (S.elKey && !inClaude && elVoiceId()) {
-    try { await speakEleven(text); talking = false; return; }
-    catch (e) { if (!elWarned) { elWarned = true; caption('', (e && e.friendly) || 'The premium voice failed, so I used the free one.', 8000); } }
+  const vk = inClaude ? {kind:'device'} : voiceKind();
+  if (vk.kind !== 'device') {
+    try {
+      if (vk.kind === 'kokoro') await speakKokoro(text, vk.id);
+      else if (vk.kind === 'voxtral') await speakVoxtral(text, vk.id);
+      else if (S.elKey && vk.id) await speakEleven(text, vk.id);
+      else throw {friendly:'Add your ElevenLabs API key in settings to use that voice, so I used the free one.'};
+      talking = false; return;
+    } catch (e) { console.warn(e); if (e && e.quiet) setStatus(e.friendly); else if (!elWarned) { elWarned = true; caption('', (e && e.friendly) || 'That voice failed, so I used the free one.', 8000); } }
   }
   try {
     if (tts && !(S.voice || '').startsWith('sys:')) {
@@ -837,7 +930,9 @@ function openSheet() {
   $('personaNote').textContent = persona().note;
   $('customBox').style.display = S.persona === 'custom' ? '' : 'none';
   $('cName').value = S.cName || ''; $('cDesc').value = S.cDesc || '';
-  $('elKey').value = S.elKey; $('elVoice').value = voiceChoice(); if (!$('elVoice').value) $('elVoice').value = 'custom';
+  $('elKey').value = S.elKey; $('mxKey').value = S.mxKey || ''; fillVoiceList();
+  $('elVoice').value = voiceChoice(); if (!$('elVoice').value) $('elVoice').value = 'custom';
+  showVoiceNote(); vxInfo();
   $('elCustom').value = S.pcustom[S.persona] || '';
   $('elCustomRow').style.display = $('elVoice').value === 'custom' ? '' : 'none';
   $('speed').value = speedOf(); showSpeed();
@@ -857,13 +952,65 @@ $('moodBtns').addEventListener('click', e => {
 function readVoiceSettings() {
   S.voice = $('voice').value;
   // the voice boxes belong to the personality that was showing
-  if (!inClaude) { S.elKey = $('elKey').value.trim(); S.pvoice[S.persona] = $('elVoice').value; S.pcustom[S.persona] = $('elCustom').value.trim(); elWarned = false; }
+  if (!inClaude) { S.elKey = $('elKey').value.trim(); S.mxKey = $('mxKey').value.trim(); S.pvoice[S.persona] = $('elVoice').value; S.pcustom[S.persona] = $('elCustom').value.trim(); elWarned = false; }
   S.cName = $('cName').value.trim(); S.cDesc = $('cDesc').value.trim();
   if (setPersona($('persona').value)) history.length = 0; // fresh chat so the new character starts clean
   save();
 }
 $('persona').addEventListener('change', () => { readVoiceSettings(); openSheet(); });
-$('elVoice').addEventListener('change', () => { $('elCustomRow').style.display = $('elVoice').value === 'custom' ? '' : 'none'; });
+function fillVoiceList() {
+  const o = (v, l) => `<option value="${esc(v)}">${esc(l)}</option>`;
+  $('elVoice').innerHTML = `<optgroup label="Free">${o('none', 'Device voice (built in, instant)')}${KOKORO.map(([v, l]) => o('kokoro:' + v, 'Kokoro ' + l)).join('')}</optgroup>` +
+    `<optgroup label="Voxtral (Mistral, very cheap)">${S.vx.length ? S.vx.map(v => o('vx:' + v.id, v.name + ' (Voxtral)')).join('') : '<option disabled>No Voxtral voices yet: add them below</option>'}</optgroup>` +
+    `<optgroup label="ElevenLabs (uses credits)">${ELEVEN.map(([v, l]) => o(v, l)).join('')}${o('custom', 'Another ElevenLabs voice (paste its ID)')}</optgroup>`;
+}
+function showVoiceNote() {
+  const k = voiceKind($('elVoice').value);
+  $('elCustomRow').style.display = $('elVoice').value === 'custom' ? '' : 'none';
+  $('voiceNote').textContent = k.kind === 'kokoro' ? 'Free and runs on this device. The first time, it downloads about 90 MB (use Wi-Fi), then works offline.'
+    : k.kind === 'voxtral' ? 'Made by Mistral. Roughly 1p for every 5 replies (about £1 for 500). Needs your Mistral API key below.'
+    : k.kind === 'eleven' ? 'ElevenLabs: uses your ElevenLabs credits. Needs your ElevenLabs API key below.' : 'Free, instant, built into this device.';
+}
+function vxInfo(msg) {
+  const have = MY_VOICES.filter(m => S.vx.some(v => v.el === m.el)).length;
+  $('vxCopy').style.display = have === MY_VOICES.length ? 'none' : '';
+  $('vxInfo').textContent = msg || (S.vx.length ? 'Your Voxtral voices: ' + S.vx.map(v => v.name).join(', ') + '. Pick them in the voice list above.' : 'Voxtral copies a voice from a short recording (5 to 25 seconds). Only use voices you have permission to copy: your own, family who agree, or voices you designed.');
+}
+$('elVoice').addEventListener('change', () => { showVoiceNote(); if (voiceKind($('elVoice').value).kind === 'kokoro' && !inClaude) getKokoro().catch(() => {}); });
+$('vxCopy').addEventListener('click', async () => {
+  S.mxKey = $('mxKey').value.trim(); save();
+  if (!S.mxKey) { vxInfo('First paste your Mistral API key above.'); return; }
+  readVoiceSettings();
+  try {
+    for (const m of MY_VOICES) {
+      if (S.vx.some(v => v.el === m.el)) continue;
+      vxInfo(`Copying ${m.name} to Voxtral…`);
+      const id = await vxCreate(m.name, b64(await (await fetch(m.file)).arrayBuffer()), m.file.split('/').pop());
+      S.vx.push({id, name:m.name, file:m.file, el:m.el});
+      for (const k of Object.keys(PERSONAS)) if (voiceChoice(k) === m.el) S.pvoice[k] = 'vx:' + id; // same voice, much cheaper
+      save();
+    }
+    openSheet(); vxInfo('Done. Personalities that used these voices on ElevenLabs now use the Voxtral copies.');
+  } catch (e) { console.warn(e); vxInfo((e && e.friendly) || 'That did not work. Check your Mistral API key.'); }
+});
+const vxFile = Object.assign(document.createElement('input'), {type:'file', accept:'audio/*'});
+$('vxAdd').addEventListener('click', () => {
+  S.mxKey = $('mxKey').value.trim(); save();
+  if (!S.mxKey) { vxInfo('First paste your Mistral API key above.'); return; }
+  vxFile.click();
+});
+vxFile.addEventListener('change', async () => {
+  const f = vxFile.files && vxFile.files[0]; vxFile.value = ''; if (!f) return;
+  const name = (prompt('Name for this voice?', f.name.replace(/\.[^.]+$/, '')) || '').trim(); if (!name) return;
+  try {
+    vxInfo(`Making the "${name}" voice…`);
+    const sample = b64(await f.arrayBuffer());
+    const id = await vxCreate(name, sample, f.name);
+    S.vx.push({id, name});
+    try { if (sample.length < 1500000) localStorage.setItem('robotface.vxs.' + id, sample); } catch (e) { }
+    readVoiceSettings(); S.pvoice[S.persona] = 'vx:' + id; save(); openSheet(); vxInfo(`"${name}" is ready and set for this personality.`);
+  } catch (e) { console.warn(e); vxInfo((e && e.friendly) || 'That did not work.'); }
+});
 function showSpeed() {
   const v = Number($('speed').value);
   $('speedVal').textContent = Math.abs(v - 1) < .01 ? 'Normal' : (v < 1 ? 'Slower' : 'Faster') + ` (${Math.round(v * 100)}%)`;
@@ -892,6 +1039,7 @@ $('closeSet').addEventListener('click', () => {
 $('sheet').addEventListener('click', e => { if (e.target.id === 'sheet') $('closeSet').click(); });
 
 // ---------- start ----------
+setTimeout(() => { if (!inClaude && Object.keys(PERSONAS).some(k => voiceKind(voiceChoice(k)).kind === 'kokoro')) getKokoro().catch(() => {}); }, 4000);
 (async () => {
   for (let i = 0; i < 10 && !inClaude; i++) {
     await new Promise(r => setTimeout(r, 100));

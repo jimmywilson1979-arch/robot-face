@@ -12,7 +12,11 @@ The face of James's home robot: an old Android phone becomes the robot's head, a
 - Front camera follow: the eyes track you around the room
 - Sight: Claude can take a photo with the camera when a question needs it ("what am I holding?")
 - Silent wake word ("Jarvis" by default) using Picovoice Porcupine, running on the device; needs a free Picovoice access key
-- Premium ElevenLabs voices with lip-sync (optional)
+- **Voices** (pick one per personality in Settings, the mouth moves with the sound):
+  - **Device voice:** free, instant, built in.
+  - **Kokoro:** free, high-quality voices that run on the phone itself ([Kokoro-82M](https://github.com/hexgrad/kokoro), Apache 2.0). It downloads about 90 MB the first time (use Wi-Fi), then works offline. Includes British George, Fable, Lewis, Daniel, Emma and Isabella, plus deep "Onyx" and jolly "Santa".
+  - **Voxtral (Mistral):** very cheap (about $0.016 per 1,000 characters, roughly 1p for every 5 replies) and copies a voice from a 5–25 second recording. Add a Mistral API key, then tap **Copy my 3 designed voices to Voxtral** (uses the clips in `voices/`), or **Add a voice from a recording**. If Mistral ever forgets a voice, the robot remakes it from its clip. Only copy voices you have permission to use.
+  - **ElevenLabs:** uses ElevenLabs credits (optional).
 - **Personalities** (Settings → Personality), each with its own voice and face colour: 🎩 Butler (Jarvis style), 🪨 Rocky from *Project Hail Mary* (fan version, home use only: clipped speech, musical chords before he talks; uses your designed "Alien" voice), 🚕 New Yorker (gruff cab driver, heart of gold), 🦁 Wildlife Narrator (narrates your home like a nature documentary, an original character; uses your designed "David A" voice), 🏴‍☠️ Pirate Captain, ⚽ Football Commentator, and ✨ Make your own (type a name and a description). Each personality remembers its own voice: pick "Free device voice" or any ElevenLabs voice, or paste a voice ID. You can also just ask: "talk like a pirate", "be Rocky", "back to normal". Each personality also has its own talking speed (🐢 70% to 🐇 120%), saved as soon as you move the slider. Choosing a personality in settings starts a fresh chat.
 - Gets sleepy when left alone, wakes on a tap or when it sees movement
 
