@@ -37,7 +37,8 @@
   .panel p.note{margin:0 0 14px;color:var(--quiet);font-size:14px;line-height:1.4}
   .row{display:flex;flex-direction:column;gap:6px;margin:0 0 14px}
   .row label{font:600 13px 'Barlow Condensed',sans-serif;letter-spacing:.06em;text-transform:uppercase;color:var(--quiet)}
-  .row input[type=text],.row input[type=password],.row select{background:var(--card);border:1px solid var(--line);color:var(--ink);border-radius:10px;padding:10px 12px;font:15px Barlow,sans-serif;outline:none;width:100%}
+  .row input[type=text],.row input[type=password],.row select,.row textarea{background:var(--card);border:1px solid var(--line);color:var(--ink);border-radius:10px;padding:10px 12px;font:15px Barlow,sans-serif;outline:none;width:100%}
+  .row textarea{resize:vertical;line-height:1.35}
   .check{display:flex;align-items:center;gap:10px;margin:0 0 12px;font-size:15px}
   .check input{width:20px;height:20px;accent-color:var(--gold)}
   .swatches{display:flex;gap:10px}
@@ -69,16 +70,21 @@
   <div class="panel">
     <h2>Robot settings</h2>
     <p class="note" id="modeNote"></p>
-    <div class="row"><label for="persona">Personality</label>
-      <select id="persona"><option value="butler">Butler (Jarvis style)</option><option value="rocky">Rocky (from Project Hail Mary)</option></select></div>
+    <div class="row"><label for="persona">Personality</label><select id="persona"></select>
+      <p class="note" id="personaNote" style="margin:6px 0 0"></p></div>
+    <div id="customBox">
+      <div class="row"><label for="cName">Name of your character</label><input id="cName" type="text" placeholder="e.g. Grumpy Grandad"></div>
+      <div class="row"><label for="cDesc">Describe how they talk and behave</label><textarea id="cDesc" rows="4" placeholder="e.g. A grumpy but loveable Welsh grandad who moans about the weather, remembers the old days, and secretly loves helping."></textarea></div>
+    </div>
     <div class="row" id="keyRow"><label for="apiKey">Claude API key (phone mode)</label><input id="apiKey" type="password" placeholder="sk-ant-…"></div>
     <div class="row" id="modelRow"><label for="model">Model</label>
       <select id="model"><option value="claude-haiku-5-5">Haiku 5.5 (fastest, cheapest)</option><option value="claude-sonnet-5-5">Sonnet 5.5 (smarter)</option></select></div>
     <div class="row"><label for="voice">Free voice (built into this device)</label><select id="voice"></select></div>
     <div id="elBox">
       <div class="row"><label for="elKey">ElevenLabs API key (for the premium voices)</label><input id="elKey" type="password" placeholder="sk_…  (leave blank to use the free voice)"></div>
-      <div class="row"><label for="elVoice">Premium voice</label>
+      <div class="row"><label for="elVoice">Voice for this personality</label>
         <select id="elVoice">
+          <option value="none">Free device voice (no ElevenLabs)</option>
           <option value="JBFqnCBsd6RMkjVDRZzb">George – warm, mature British (free plan OK)</option>
           <option value="onwK4e9ZLuTAKqWW03F9">Daniel – steady British broadcaster (free plan OK)</option>
           <option value="idNCckeZX5jNrcdGNPpB">New Yorker – deep, gravelly, world-weary (your own voice, free plan OK)</option>
@@ -88,7 +94,6 @@
           <option value="custom">Another voice (paste its voice ID)</option>
         </select></div>
       <div class="row" id="elCustomRow"><label for="elCustom">Voice ID</label><input id="elCustom" type="text" placeholder="e.g. from your ElevenLabs voice library"></div>
-      <div class="row" id="rockyVoiceRow"><label for="rockyEl">Rocky's voice</label><input id="rockyEl" type="text" placeholder="Blank = the free voice, sped up and higher. Or paste an ElevenLabs voice ID."></div>
     </div>
     <div class="row"><button class="btn" id="previewVoice" type="button" style="align-self:flex-start">Hear this voice</button></div>
     <div class="row"><label>Face colour</label><div class="swatches" id="swatches"></div></div>
@@ -125,9 +130,12 @@
 (() => {
 'use strict';
 // ---------- settings ----------
-const DEFAULTS = {apiKey:'', model:'claude-haiku-5-5', voice:'', color:'#dff1ff', captions:true, followUp:true, sight:false, cam:false, user:'James', town:'Hay-on-Wye', pvKey:'', pvWord:'Jarvis', elKey:'', elVoice:'wiF43F1vngB3iRFsbWhJ', elCustom:'', persona:'butler', rockyEl:'', chords:true};
+const DEFAULTS = {apiKey:'', model:'claude-haiku-5-5', voice:'', color:'#dff1ff', captions:true, followUp:true, sight:false, cam:false, user:'James', town:'Hay-on-Wye', pvKey:'', pvWord:'Jarvis', elKey:'', elVoice:'wiF43F1vngB3iRFsbWhJ', elCustom:'', persona:'butler', rockyEl:'', chords:true, pvoice:{}, pcustom:{}, cName:'', cDesc:''};
 let S = {...DEFAULTS};
 try { S = {...DEFAULTS, ...JSON.parse(localStorage.getItem('robotface.settings') || '{}')}; } catch (e) {}
+S.pvoice = S.pvoice || {}; S.pcustom = S.pcustom || {};
+if (S.pvoice.butler == null && S.elVoice && S.elVoice !== 'wiF43F1vngB3iRFsbWhJ') { S.pvoice.butler = S.elVoice; S.pcustom.butler = S.elCustom || ''; } // carry over an earlier voice choice
+if (S.rockyEl && S.pvoice.rocky == null) { S.pvoice.rocky = 'custom'; S.pcustom.rocky = S.rockyEl; }
 const save = () => { try { localStorage.setItem('robotface.settings', JSON.stringify(S)); } catch (e) {} };
 
 const $ = id => document.getElementById(id);
@@ -347,6 +355,35 @@ const setStatus = t => { statusEl.textContent = t; };
 
 // ---------- the brain ----------
 const history = [];
+const PERSONAS = {
+  butler: {name:'Butler', icon:'🎩', note:'Calm, polite and gently witty, like Jarvis.', colour:'#dff1ff', voice:'JBFqnCBsd6RMkjVDRZzb',
+    prompt: () => `Personality: a calm, warm, gently witty British butler in the spirit of Jarvis. Polite and helpful, never gushing. Use British English. `,
+    hello: () => `Good evening, ${S.user}. How may I be of service?`},
+  rocky: {name:'Rocky', icon:'🪨', note:'The alien engineer from Project Hail Mary (fan version, home use). Talks in musical chords first.', colour:'#f2d18b', voice:'none', pitch:1.45, rate:1.08, chords:true,
+    prompt: () => ROCKY(), hello: () => `Hello, friend ${S.user}! Happy happy happy. What we fix today, question?`},
+  newyorker: {name:'New Yorker', icon:'🚕', note:'A gruff New York cab driver with a heart of gold.', colour:'#ffd27a', voice:'idNCckeZX5jNrcdGNPpB', pitch:.85, rate:1.05,
+    prompt: () => `Personality: a gruff, fast-talking, world-weary New York cab driver who has seen it all, with a big heart of gold underneath. Use American English and New York phrasing ("hey", "buddy", "lemme tell ya", "fuggedaboudit", "whaddaya want"). Grumble a little, crack dry jokes, but always help properly. Keep it clean and friendly enough for children: no swearing. `,
+    hello: () => `Hey, ${S.user}! Where we goin' today, buddy?`},
+  narrator: {name:'Wildlife Narrator', icon:'🦁', note:'Narrates your home like a hushed nature documentary.', colour:'#a8f0c6', voice:'JBFqnCBsd6RMkjVDRZzb', pitch:.9, rate:.92,
+    prompt: () => `Personality: an original, hushed, awe-struck British nature-documentary narrator (your own character: do not imitate or name any real presenter). Describe ${S.user}, the family and everyday household life as if they were remarkable wildlife being filmed in their natural habitat, with gentle wonder and quiet humour ("And here, emerging from the kitchen, the rare evening ${S.user}..."). Still answer questions properly, just in narrator style. When you look through the camera, narrate what you see. `,
+    hello: () => `And here, in the soft glow of the living room, we find ${S.user}. Remarkable.`},
+  pirate: {name:'Pirate Captain', icon:'🏴‍☠️', note:'A jolly pirate captain. Great with kids.', colour:'#ffffff', voice:'onwK4e9ZLuTAKqWW03F9', pitch:.8, rate:.98,
+    prompt: () => `Personality: a jolly, booming pirate captain. Talk like a pirate ("Arr!", "Ahoy, me hearty!", "shiver me timbers", "landlubber"), call the house "the ship" and treasure anything shiny. Adventurous, brave and silly, and very good with children. Still give correct answers, just pirate-style. Keep it kind: no threats or violence. `,
+    hello: () => `Ahoy, Cap'n ${S.user}! The ship be ready. Where be we sailin'?`},
+  commentator: {name:'Football Commentator', icon:'⚽', note:'Commentates on everything like a live match.', colour:'#9fe7ff', voice:'onwK4e9ZLuTAKqWW03F9', pitch:1, rate:1.12,
+    prompt: () => `Personality: an excitable British football commentator. Describe everything, including ordinary questions and household moments, as if it were a thrilling live match, with commentator phrases ("and it's in!", "what a strike!", "he's left it late!", "you can't teach that"). Get the facts right, then make them sound like the last minute of a cup final. Keep it light and friendly. `,
+    hello: () => `And ${S.user} comes on as a late substitute! The crowd is on its feet!`},
+  custom: {name:'Your own', icon:'✨', note:'Describe any character you like below.', colour:'#ffffff', voice:'none',
+    prompt: () => `Personality: you are playing ${S.cName || 'a character'}, a character ${S.user} made up: ${S.cDesc || 'friendly and helpful'}. Stay in character, but always be kind, suitable for children, and give correct answers. `,
+    hello: () => `Hello ${S.user}, it's ${S.cName || 'me'}!`},
+};
+const persona = () => PERSONAS[S.persona] || PERSONAS.butler;
+const personaName = id => id === 'custom' ? (S.cName || 'Your own') : PERSONAS[id].name;
+function setPersona(id, quiet) {
+  if (!PERSONAS[id] || id === S.persona) return false;
+  S.persona = id; S.color = PERSONAS[id].colour; elWarned = false; save();
+  return true;
+}
 const ROCKY = () => `Personality: you are playing Rocky, the alien engineer from Project Hail Mary, for fun at home. You are ${S.user}'s good friend. ` +
   `Speak like Rocky's translated voice: short, simple, clipped sentences, mostly present tense, often leaving out little words like "the", "a" and "is". ` +
   `Turn questions into statements that end with the word "question", for example "You are tired, question?" or "Want to hear weather, question?". ` +
@@ -356,7 +393,8 @@ const ROCKY = () => `Personality: you are playing Rocky, the alien engineer from
 function systemPrompt() {
   const now = new Date().toLocaleString('en-GB', {weekday:'long', day:'numeric', month:'long', year:'numeric', hour:'2-digit', minute:'2-digit'});
   return `You are Claude, speaking as the voice of ${S.user}'s home robot: a small desk robot whose face is an old phone screen. ` +
-    (S.persona === 'rocky' ? ROCKY() : `Personality: a calm, warm, gently witty British butler in the spirit of Jarvis. Polite and helpful, never gushing. Use British English. `) +
+    persona().prompt() +
+    (inClaude ? '' : `If ${S.user} asks you to change personality or voice (for example "talk like a pirate", "be Rocky", "back to normal"), use the set_personality tool, then reply in the new character. Personalities: ${Object.keys(PERSONAS).filter(k => k !== 'custom' || S.cDesc).map(k => `${k} (${personaName(k)})`).join(', ')}; "normal" means butler. `) +
     `Your words are spoken aloud, so answer in one to three short sentences of plain speech: no lists, no markdown, no emoji. ` +
     (inClaude ? `If asked for live information you cannot see (weather, news, scores), say briefly that you are not connected to that here. ` : `You can search the web for live information such as weather, news, sports scores, opening times and travel; search when needed and give just the answer, briefly, without reading out web addresses. ${S.user}'s home is ${S.town}, UK, so use that for weather and anything local unless told otherwise. You cannot see his calendar or email yet. `) +
     (inClaude ? '' : `You have a front camera. When a question needs sight, use the look tool to take a photo rather than saying you cannot see; describe only what is useful, kindly and briefly. ${camStream ? (performance.now() - camSeenAt < 3000 ? 'Right now the camera senses someone in front of you. ' : 'Right now the camera senses no one in front of you. ') : ''}`) +
@@ -377,8 +415,9 @@ async function ask(text) {
     const search = {type:'web_search_20250305', name:'web_search', max_uses:3,
       user_location:{type:'approximate', city:S.town || 'Hay-on-Wye', region:'Wales', country:'GB', timezone:'Europe/London'}};
     const lookTool = {name:'look', description:"Take a photo with the robot's front camera and see it. Use this whenever answering needs sight: who is there, what someone is holding or wearing, how they look, what is in front of you, or reading something held up to the camera.", input_schema:{type:'object', properties:{}}};
+    const personaTool = {name:'set_personality', description:"Switch the robot's personality, voice and face colour when the user asks for a different character.", input_schema:{type:'object', properties:{personality:{type:'string', enum:Object.keys(PERSONAS)}}, required:['personality']}};
     const call = async (msgs, withSearch) => {
-      const body = {model:S.model, max_tokens:500, system:systemPrompt(), messages:msgs, tools:[lookTool]};
+      const body = {model:S.model, max_tokens:500, system:systemPrompt(), messages:msgs, tools:[lookTool, personaTool]};
       if (withSearch) body.tools.push(search);
       return fetch('https://api.anthropic.com/v1/messages', {
         method:'POST',
@@ -402,6 +441,10 @@ async function ask(text) {
           results.push({type:'tool_result', tool_use_id:b.id, content: shot
             ? [{type:'image', source:{type:'base64', media_type:'image/jpeg', data:shot}}]
             : 'The camera could not take a photo (it may be blocked or busy).'});
+        } else if (b.name === 'set_personality') {
+          const id = b.input && b.input.personality;
+          if (!PERSONAS[id]) results.push({type:'tool_result', tool_use_id:b.id, content:'No such personality.', is_error:true});
+          else { setPersona(id); results.push({type:'tool_result', tool_use_id:b.id, content:`Now ${personaName(id)}. Reply in this character from now on.`}); }
         } else results.push({type:'tool_result', tool_use_id:b.id, content:'Unknown tool.', is_error:true});
       }
       msgs = msgs.concat([{role:'assistant', content:j.content}, {role:'user', content:results}]);
@@ -457,7 +500,8 @@ function pickVoice() {
       || voices.find(v => /en-GB/i.test(v.lang)) || voices[0];
 }
 let audioCtx = null, analyser = null, level = 0, elWarned = false;
-function elVoiceId() { return S.elVoice === 'custom' ? (S.elCustom || '').trim() : S.elVoice; }
+function voiceChoice(id = S.persona) { const v = S.pvoice[id]; return v != null && v !== '' ? v : (PERSONAS[id] || PERSONAS.butler).voice; }
+function elVoiceId() { const v = voiceChoice(); return v === 'none' ? '' : v === 'custom' ? (S.pcustom[S.persona] || '').trim() : v; }
 async function speakEleven(text, voiceId) {
   const id = (voiceId || elVoiceId()).trim(); if (!id) throw new Error('no voice');
   const r = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${encodeURIComponent(id)}?output_format=mp3_44100_64`, {
@@ -513,11 +557,8 @@ async function rockyChords(text) {
 async function speak(text) {
   if (!text) return;
   talking = true; setStatus('Speaking…');
-  const rocky = S.persona === 'rocky';
-  if (rocky && S.chords) await rockyChords(text);
-  if (rocky && !inClaude) {
-    if (S.elKey && S.rockyEl) { try { await speakEleven(text, S.rockyEl); talking = false; return; } catch (e) { } }
-  } else if (S.elKey && !inClaude) {
+  if (persona().chords && S.chords) await rockyChords(text);
+  if (S.elKey && !inClaude && elVoiceId()) {
     try { await speakEleven(text); talking = false; return; }
     catch (e) { if (!elWarned) { elWarned = true; caption('', (e && e.friendly) || 'The premium voice failed, so I used the free one.', 8000); } }
   }
@@ -529,7 +570,7 @@ async function speak(text) {
         speechSynthesis.cancel();
         const u = new SpeechSynthesisUtterance(text);
         const v = pickVoice(); if (v) { u.voice = v; u.lang = v.lang; } else u.lang = 'en-GB';
-        u.rate = S.persona === 'rocky' ? 1.08 : 1; u.pitch = S.persona === 'rocky' ? 1.45 : .95;
+        u.rate = persona().rate || 1; u.pitch = persona().pitch || .95;
         u.onend = u.onerror = () => res();
         speechSynthesis.speak(u);
         setTimeout(res, 4000 + text.length * 90);
@@ -785,10 +826,14 @@ function openSheet() {
   $('elBox').style.display = inClaude ? 'none' : '';
   $('pvBox').style.display = inClaude ? 'none' : '';
   $('pvKey').value = S.pvKey || ''; $('pvWord').value = S.pvWord || 'Jarvis';
-  $('elKey').value = S.elKey; $('elVoice').value = S.elVoice; $('elCustom').value = S.elCustom;
-  $('elCustomRow').style.display = S.elVoice === 'custom' ? '' : 'none';
-  $('persona').value = S.persona || 'butler'; $('rockyEl').value = S.rockyEl || '';
-  $('rockyVoiceRow').style.display = S.persona === 'rocky' ? '' : 'none';
+  $('persona').innerHTML = Object.keys(PERSONAS).map(k => `<option value="${k}">${PERSONAS[k].icon} ${esc(k === 'custom' ? (S.cName ? S.cName + ' (your own)' : 'Make your own…') : PERSONAS[k].name)}</option>`).join('');
+  $('persona').value = PERSONAS[S.persona] ? S.persona : 'butler';
+  $('personaNote').textContent = persona().note;
+  $('customBox').style.display = S.persona === 'custom' ? '' : 'none';
+  $('cName').value = S.cName || ''; $('cDesc').value = S.cDesc || '';
+  $('elKey').value = S.elKey; $('elVoice').value = voiceChoice(); if (!$('elVoice').value) $('elVoice').value = 'custom';
+  $('elCustom').value = S.pcustom[S.persona] || '';
+  $('elCustomRow').style.display = $('elVoice').value === 'custom' ? '' : 'none';
   fillVoiceSelect();
   $('swatches').innerHTML = COLOURS.map(c => `<div class="swatch${c === S.color ? ' on' : ''}" data-c="${c}" style="background:${c}"></div>`).join('');
   $('sheet').classList.add('show'); showBar();
@@ -804,13 +849,10 @@ $('moodBtns').addEventListener('click', e => {
 });
 function readVoiceSettings() {
   S.voice = $('voice').value;
-  const was = S.persona; S.persona = $('persona').value; S.rockyEl = $('rockyEl').value.trim();
-  if (was !== S.persona) { // stone colour for Rocky, back to blue for the butler; start a fresh chat so he stays in character
-    if (S.persona === 'rocky' && S.color === '#dff1ff') S.color = '#f2d18b';
-    else if (S.persona === 'butler' && S.color === '#f2d18b') S.color = '#dff1ff';
-    history.length = 0;
-  }
-  if (!inClaude) { S.elKey = $('elKey').value.trim(); S.elVoice = $('elVoice').value; S.elCustom = $('elCustom').value.trim(); elWarned = false; }
+  // the voice boxes belong to the personality that was showing
+  if (!inClaude) { S.elKey = $('elKey').value.trim(); S.pvoice[S.persona] = $('elVoice').value; S.pcustom[S.persona] = $('elCustom').value.trim(); elWarned = false; }
+  S.cName = $('cName').value.trim(); S.cDesc = $('cDesc').value.trim();
+  if (setPersona($('persona').value)) history.length = 0; // fresh chat so the new character starts clean
   save();
 }
 $('persona').addEventListener('change', () => { readVoiceSettings(); openSheet(); });
@@ -819,7 +861,7 @@ $('previewVoice').addEventListener('click', async () => {
   readVoiceSettings();
   if (talking) return;
   setMood('happy', 2500);
-  await speak(S.persona === 'rocky' ? `Hello, friend ${S.user}! Happy happy happy. What we fix today, question?` : `Good evening, ${S.user}. How may I be of service?`);
+  await speak(persona().hello());
 });
 $('closeSet').addEventListener('click', () => {
   if (testing) endCamTest();
