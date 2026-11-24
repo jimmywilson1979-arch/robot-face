@@ -990,7 +990,7 @@ function systemPrompt() {
   const now = new Date().toLocaleString('en-GB', {weekday:'long', day:'numeric', month:'long', year:'numeric', hour:'2-digit', minute:'2-digit'});
   return `You are Claude, speaking as the voice of ${S.user}'s home robot: a small desk robot whose face is an old phone screen. ` +
     persona().prompt() +
-    (inClaude ? '' : `If ${S.user} asks you to change personality or voice (for example "talk like a pirate", "be Rocky", "back to normal"), use the set_personality tool, then reply in the new character. Right now the screen is showing ${screenDesc()}. ${HS.timers.length ? 'Timers running: ' + HS.timers.map(t => `${tName(t)} (${t.done ? 'done' : fmtT(t.end - Date.now()) + ' left'})`).join(', ') + '. ' : ''}${HS.shop.some(x => !x.done) ? 'Shopping list: ' + HS.shop.filter(x => !x.done).map(x => x.item).join(', ') + '. ' : ''}Use the timer tool for timers and the shopping_list tool for the shopping list. If asked to show, play or put on a video, pictures, a slideshow, a map or directions, use show_on_screen and then say only a few words such as "Here you go." (never describe what you put on). For videos, find 2 or 3 YouTube links with web search first; for a picture of something from the web, use image_search; for "how do I get to" or directions, use kind directions. "Close it", "back to your face" or "stop" means kind close. If asked to change your face or look, use set_face (classic eyes, hologram orb, sound wave, or pixel LED). Personalities: ${Object.keys(PERSONAS).filter(k => k !== 'custom' || S.cDesc).map(k => `${k} (${personaName(k)})`).join(', ')}; "normal" means butler. `) +
+    (inClaude ? '' : `If ${S.user} asks you to change personality or voice (for example "talk like a pirate", "be Rocky", "back to normal"), use the set_personality tool, then reply in the new character. Speech recognition sometimes mishears: if the words look odd, go with the most likely meaning without mentioning it, or ask one very short question. Never say you are guessing and don't apologise unless you really got something wrong; if you are not sure of a fact that could have changed, look it up with web search. Whenever ${S.user} asks for a recipe or how to cook or bake something, always use show_on_screen with kind recipe (write a good, simple recipe from your own knowledge with amounts and short steps; only search if he names a particular chef or recipe), then say only "Here's the recipe. Say next step when you're ready." Right now the screen is showing ${screenDesc()}. ${HS.timers.length ? 'Timers running: ' + HS.timers.map(t => `${tName(t)} (${t.done ? 'done' : fmtT(t.end - Date.now()) + ' left'})`).join(', ') + '. ' : ''}${HS.shop.some(x => !x.done) ? 'Shopping list: ' + HS.shop.filter(x => !x.done).map(x => x.item).join(', ') + '. ' : ''}Use the timer tool for timers and the shopping_list tool for the shopping list. If asked to show, play or put on a video, pictures, a slideshow, a map or directions, use show_on_screen and then say only a few words such as "Here you go." (never describe what you put on). For videos, find 2 or 3 YouTube links with web search first; for a picture of something from the web, use image_search; for "how do I get to" or directions, use kind directions. "Close it", "back to your face" or "stop" means kind close. If asked to change your face or look, use set_face (classic eyes, hologram orb, sound wave, or pixel LED). Personalities: ${Object.keys(PERSONAS).filter(k => k !== 'custom' || S.cDesc).map(k => `${k} (${personaName(k)})`).join(', ')}; "normal" means butler. `) +
     `Your words are spoken aloud, so answer in one to three short sentences of plain speech: no lists, no markdown, no emoji. ` +
     (inClaude ? `If asked for live information you cannot see (weather, news, scores), say briefly that you are not connected to that here. ` : `You can search the web for live information such as weather, news, sports scores, opening times and travel; search when needed and give just the answer, briefly, without reading out web addresses. ${S.user}'s home is ${S.town}, UK, so use that for weather and anything local unless told otherwise. You cannot see his calendar or email yet. `) +
     (inClaude ? '' : `You have a front camera. When a question needs sight, use the look tool to take a photo rather than saying you cannot see; describe only what is useful, kindly and briefly. ${camStream ? (performance.now() - camSeenAt < 3000 ? 'Right now the camera senses someone in front of you. ' : 'Right now the camera senses no one in front of you. ') : ''}`) +
@@ -1022,7 +1022,7 @@ async function ask(text) {
       input_schema:{type:'object', properties:{action:{type:'string', enum:['add', 'remove', 'clear', 'show']}, items:{type:'array', items:{type:'string'}}}, required:['action']}};
     const personaTool = {name:'set_personality', description:"Switch the robot's personality, voice and face colour when the user asks for a different character.", input_schema:{type:'object', properties:{personality:{type:'string', enum:Object.keys(PERSONAS)}}, required:['personality']}};
     const call = async (msgs, withSearch) => {
-      const body = {model:S.model, max_tokens:500, system:systemPrompt(), messages:msgs, tools:[lookTool, personaTool, faceTool, screenTool, timerTool, shopTool]};
+      const body = {model:S.model, max_tokens:2500, system:systemPrompt(), messages:msgs, tools:[lookTool, personaTool, faceTool, screenTool, timerTool, shopTool]};
       if (withSearch) body.tools.push(search);
       return fetch('https://api.anthropic.com/v1/messages', {
         method:'POST',
@@ -1031,12 +1031,18 @@ async function ask(text) {
       });
     };
     let msgs = history.slice(), parts = [];
-    for (let step = 0; step < 5; step++) {
-      let r = await call(msgs, searchOn);
-      if (!r.ok && searchOn && r.status === 400) { searchOn = false; r = await call(msgs, false); }
-      if (!r.ok) { const t = await r.text(); throw {friendly: r.status === 401 ? 'That API key was refused. Check it in settings.' : 'I could not reach Claude just now.', detail:t}; }
+    for (let step = 0; step < 6; step++) {
+      let r = await call(msgs, true);
+      if (!r.ok && r.status === 400) { // try once more without web search, for this question only
+        const t = await r.text(); console.warn('Claude 400', t);
+        r = await call(msgs, false);
+      }
+      if (!r.ok) {
+        const t = await r.text(); console.warn('Claude', r.status, t);
+        throw {friendly: r.status === 401 ? 'That API key was refused. Check it in settings.' : r.status === 429 ? 'I need a short breather. Try again in a moment.' : r.status === 529 || r.status >= 500 ? 'Claude is very busy right now. Try again in a moment.' : `I could not reach Claude just now (${r.status}).`, detail:t};
+      }
       const j = await r.json();
-      parts = parts.concat(j.content || []);
+      parts = j.content || []; // only the last answer is spoken, not the "let me check" bits along the way
       if (j.stop_reason === 'pause_turn') { msgs = msgs.concat([{role:'assistant', content:j.content}]); continue; }
       if (j.stop_reason !== 'tool_use') break;
       const results = [];
@@ -1083,9 +1089,10 @@ async function ask(text) {
       msgs = msgs.concat([{role:'assistant', content:j.content}, {role:'user', content:results}]);
       setMood('thinking'); setStatus('Thinking…');
     }
-    reply = parts.filter(c => c.type === 'text').map(c => c.text).join('');
+    reply = parts.filter(c => c.type === 'text').map(c => c.text).join(' ');
   }
   reply = (reply || '').trim();
+  if (!reply.replace(/\[\w+\]/g, '').trim()) reply = shownThisTurn ? '[happy] Here you go.' : '[neutral] Done.'; // never leave an empty turn in the history
   history.push({role:'assistant', content:reply});
   const m = reply.match(/^\s*\[(\w+)\]\s*/);
   const tag = m ? m[1].toLowerCase() : 'neutral';
@@ -1320,7 +1327,7 @@ async function speak(text) {
       if (vk.kind === 'kokoro') await speakKokoro(text, vk.id);
       else if (vk.kind === 'voxtral') await speakVoxtral(text, vk.id);
       else if (S.elKey && vk.id) await speakEleven(text, vk.id);
-      else throw {friendly:'Add your ElevenLabs API key in settings to use that voice, so I used the free one.'};
+      else throw {quiet:true, friendly:'No ElevenLabs key, so using the device voice.'};
       talking = false; return;
     } catch (e) { console.warn(e); if (e && e.quiet) setStatus(e.friendly); else if (!elWarned) { elWarned = true; caption('', (e && e.friendly) || 'That voice failed, so I used the free one.', 8000); } }
   }
