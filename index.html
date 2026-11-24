@@ -132,7 +132,7 @@
 </div>
 <div id="sheet">
   <div class="panel">
-    <h2>Robot settings <span class="note" style="font-size:13px;font-weight:400">version 24 Nov 2026, 01:15</span></h2>
+    <h2>Robot settings <span class="note" style="font-size:13px;font-weight:400">version 24 Nov 2026, 01:20</span></h2>
     <p class="note" id="modeNote"></p>
     <div class="row"><label for="persona">Personality</label><select id="persona"></select>
       <p class="note" id="personaNote" style="margin:6px 0 0"></p></div>
@@ -175,9 +175,10 @@
     </div>
     <div class="row" id="townRow"><label for="town">Home town (for weather and local info)</label><input id="town" type="text" placeholder="Hay-on-Wye"></div>
     <div class="row" id="idleRow"><label>When nobody's talking to it</label>
-      <label class="check" style="margin:4px 0"><input type="checkbox" id="phOn"> Photo frame from <input id="phFrom" type="time" style="width:auto;margin:0 4px"> to <input id="phTo" type="time" style="width:auto;margin:0 4px"></label>
+      <label class="check" style="margin:4px 0"><input type="checkbox" id="phOn"> Photo frame from <input id="phFrom" type="time" style="width:auto;margin:0 4px"> to <input id="phTo" type="time" style="width:auto;margin:0 4px"> showing <select id="phAlbum" style="width:auto;margin:0 4px;padding:4px 8px"></select></label>
       <label class="check" style="margin:4px 0"><input type="checkbox" id="ckOn"> Bedside clock from <input id="ckFrom" type="time" style="width:auto;margin:0 4px"> to <input id="ckTo" type="time" style="width:auto;margin:0 4px"></label>
-      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:6px"><button class="btn" id="phAdd" type="button">Add photos from this tablet</button><button class="btn" id="phClear" type="button">Remove all</button><span class="note" id="phCount" style="margin:0"></span></div>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:8px"><span class="note" style="margin:0">Album</span><select id="phPick" style="width:auto;padding:6px 10px"></select><button class="btn" id="phAdd" type="button">Add photos to this album</button><button class="btn" id="phClear" type="button">Empty this album</button></div>
+      <p class="note" id="phCount" style="margin:6px 0 0"></p>
       <p class="note" style="margin:6px 0 0">Photos stay on this tablet only. Talking to it or tapping the screen brings the face back; it returns after a minute.</p></div>
     <label class="check" id="camRow"><input type="checkbox" id="cam"> Follow me with the front camera</label>
     <div class="row" id="camTestRow"><label>Camera check</label>
@@ -454,7 +455,7 @@ function showMap(q) {
 }
 function screenDesc() {
   if (!screenOpen) return 'your face (nothing else is on the screen)';
-  const other = {weather:'a weather card', recipe:'a recipe (cook-along)', photos:'the family photo slideshow', clock:'a clock', timers:'the timers', shopping:'the shopping list'}[scr.kind];
+  const other = {weather:'a weather card', recipe:'a recipe (cook-along)', photos:`a slideshow of the ${scr.album && scr.album !== 'All' ? scr.album : 'tablet'} photos`, clock:'a clock', timers:'the timers', shopping:'the shopping list'}[scr.kind];
   if (other) return other;
   if (scr.kind === 'video') return 'a YouTube video' + (scr.title ? ` (${scr.title})` : '');
   if (scr.kind === 'pictures') return 'a picture slideshow' + (scr.id ? ` (${scr.id})` : '');
@@ -582,7 +583,8 @@ $('ytGo').addEventListener('click', () => { vidHeld = false; if (showVideo($('yt
 // ---------- home helpers: timers, weather, recipes, photos, bedside clock, shopping list ----------
 const HS = (() => { try { return JSON.parse(localStorage.getItem('robotface.home') || '{}'); } catch (e) { return {}; } })();
 HS.timers = HS.timers || []; HS.shop = HS.shop || []; HS.recipe = HS.recipe || null;
-HS.idle = Object.assign({photosOn:false, photosFrom:'18:00', photosTo:'22:00', clockOn:false, clockFrom:'22:00', clockTo:'07:00'}, HS.idle || {});
+HS.albums = HS.albums || ['Family', 'Art'];
+HS.idle = Object.assign({photosOn:false, photosFrom:'18:00', photosTo:'22:00', photoAlbum:'All', clockOn:false, clockFrom:'22:00', clockTo:'07:00'}, HS.idle || {});
 const saveHS = () => { try { localStorage.setItem('robotface.home', JSON.stringify(HS)); } catch (e) { } };
 function panel(html, kind, id, extra) { scrReset(); $('scrContent').innerHTML = `<div class="hp">${html}</div>`; scr = Object.assign({kind, id:id || '', paused:false}, extra || {}); openScreen(); }
 let lastUser = performance.now();
@@ -694,8 +696,18 @@ $('scrContent').addEventListener('click', e => {
 // ----- family photos, kept on this tablet (IndexedDB) -----
 const PDB = () => new Promise((res, rej) => { const r = indexedDB.open('robotface', 1); r.onupgradeneeded = () => r.result.createObjectStore('photos', {keyPath:'id'}); r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); });
 async function photoTx(mode, fn) { const db = await PDB(); return new Promise((res, rej) => { const tx = db.transaction('photos', mode), st = tx.objectStore('photos'); const out = fn(st); tx.oncomplete = () => res(out && out.result !== undefined ? out.result : out); tx.onerror = () => rej(tx.error); }); }
-const photoCount = () => photoTx('readonly', st => st.count()).catch(() => 0);
-async function addPhotos(files) {
+let ALBUMS = {}; // album name -> number of photos
+const albumOf = p => p.album || 'Family'; // photos added before albums existed are family ones
+async function refreshAlbums() {
+  const all = await photoTx('readonly', st => st.getAll()).catch(() => []);
+  ALBUMS = {}; for (const a of HS.albums) ALBUMS[a] = 0;
+  for (const p of all) ALBUMS[albumOf(p)] = (ALBUMS[albumOf(p)] || 0) + 1;
+  return ALBUMS;
+}
+const albumMatch = name => { const n = String(name || '').toLowerCase().trim(); if (!n || n === 'all') return 'All'; return Object.keys(ALBUMS).find(a => a.toLowerCase() === n) || Object.keys(ALBUMS).find(a => n.includes(a.toLowerCase()) || a.toLowerCase().includes(n)) || null; };
+const photoCount = async (album = 'All') => { await refreshAlbums(); return album === 'All' ? Object.values(ALBUMS).reduce((a, b) => a + b, 0) : ALBUMS[album] || 0; };
+refreshAlbums();
+async function addPhotos(files, album = 'Family') {
   let n = 0;
   for (const f of files) {
     try {
@@ -703,24 +715,32 @@ async function addPhotos(files) {
       const c = document.createElement('canvas'); c.width = Math.round(bmp.width * k); c.height = Math.round(bmp.height * k);
       c.getContext('2d').drawImage(bmp, 0, 0, c.width, c.height);
       const blob = await new Promise(r => c.toBlob(r, 'image/jpeg', .85));
-      await photoTx('readwrite', st => st.put({id:Date.now().toString(36) + Math.random().toString(36).slice(2, 6), blob}));
+      await photoTx('readwrite', st => st.put({id:Date.now().toString(36) + Math.random().toString(36).slice(2, 6), blob, album}));
       n++; $('phCount').textContent = `Adding… ${n} of ${files.length}`;
     } catch (e) { console.warn('photo', e); }
   }
   return n;
 }
 let photoURLs = [];
-async function showPhotos(auto) {
-  const all = await photoTx('readonly', st => st.getAll()).catch(() => []);
+async function showPhotos(auto, album = 'All') {
+  const all = (await photoTx('readonly', st => st.getAll()).catch(() => [])).filter(p => album === 'All' || albumOf(p) === album);
   if (!all.length) return false;
   photoURLs.forEach(u => URL.revokeObjectURL(u)); photoURLs = all.map(p => URL.createObjectURL(p.blob));
   const pics = photoURLs.map(src => ({src}));
   for (let k = pics.length - 1; k > 0; k--) { const j = Math.floor(Math.random() * (k + 1)); [pics[k], pics[j]] = [pics[j], pics[k]]; }
-  const ok = showPictures(pics, 'Family photos'); if (ok) { scr.kind = 'photos'; scr.auto = !!auto; } return ok;
+  const ok = showPictures(pics, album === 'All' ? 'All photos' : album); if (ok) { scr.kind = 'photos'; scr.album = album; scr.auto = !!auto; } return ok;
 }
 const phFile = Object.assign(document.createElement('input'), {type:'file', accept:'image/*', multiple:true});
-phFile.addEventListener('change', async () => { const fs = [...(phFile.files || [])]; phFile.value = ''; if (!fs.length) return; const n = await addPhotos(fs); photoInfo(`${n} added. `); });
-async function photoInfo(pre = '') { const n = await photoCount(); $('phCount').textContent = pre + (n ? `${n} photo${n === 1 ? '' : 's'} on this tablet` : 'No photos yet'); }
+phFile.addEventListener('change', async () => { const fs = [...(phFile.files || [])]; phFile.value = ''; if (!fs.length) return; const al = $('phPick').value; const n = await addPhotos(fs, al); photoInfo(`${n} added to ${al}. `); });
+async function photoInfo(pre = '') {
+  await refreshAlbums();
+  const names = Object.keys(ALBUMS), pick = $('phPick').value || HS.lastAlbum || names[0];
+  $('phPick').innerHTML = names.map(a => `<option>${esc(a)}</option>`).join('') + '<option value="__new">+ New album…</option>';
+  $('phPick').value = names.includes(pick) ? pick : names[0];
+  $('phAlbum').innerHTML = '<option value="All">all albums</option>' + names.map(a => `<option>${esc(a)}</option>`).join('');
+  $('phAlbum').value = names.includes(HS.idle.photoAlbum) ? HS.idle.photoAlbum : 'All';
+  $('phCount').textContent = pre + names.map(a => `${a}: ${ALBUMS[a]} photo${ALBUMS[a] === 1 ? '' : 's'}`).join(' · ') + '. Photos stay on this tablet.';
+}
 
 // ----- bedside clock -----
 function showClock(night, auto) {
@@ -763,11 +783,11 @@ const inWindow = (from, to) => { const d = new Date(), n = d.getHours() * 60 + d
 async function idleCheck() {
   if (busy || listening || talking || thinking || ringing) return;
   if (screenOpen && !scr.auto) return;
-  const I = HS.idle, want = I.clockOn && inWindow(I.clockFrom, I.clockTo) ? 'clock' : I.photosOn && inWindow(I.photosFrom, I.photosTo) && await photoCount() ? 'photos' : '';
+  const I = HS.idle, want = I.clockOn && inWindow(I.clockFrom, I.clockTo) ? 'clock' : I.photosOn && inWindow(I.photosFrom, I.photosTo) && await photoCount(I.photoAlbum || 'All') ? 'photos' : '';
   if (!want) { if (screenOpen && scr.auto) closeScreen(false); return; }
   if (performance.now() - lastUser < 60000) return;
   if (screenOpen && scr.kind === want) return;
-  if (want === 'clock') showClock(true, true); else await showPhotos(true);
+  if (want === 'clock') showClock(true, true); else await showPhotos(true, I.photoAlbum || 'All');
 }
 setInterval(idleCheck, 15000);
 
@@ -1027,8 +1047,8 @@ async function ask(text) {
       user_location:{type:'approximate', city:S.town || 'Hay-on-Wye', region:'Wales', country:'GB', timezone:'Europe/London'}};
     const lookTool = {name:'look', description:"Take a photo with the robot's front camera and see it. Use this whenever answering needs sight: who is there, what someone is holding or wearing, how they look, what is in front of you, or reading something held up to the camera.", input_schema:{type:'object', properties:{}}};
     const faceTool = {name:'set_face', description:"Change how the robot's face looks when the user asks: classic (eyes and mouth), orb (spinning hologram orb of light), wave (sound-wave line with small eyes), pixel (glowing dot-matrix LED face).", input_schema:{type:'object', properties:{face:{type:'string', enum:Object.keys(FACE_NAMES)}}, required:['face']}};
-    const screenTool = {name:'show_on_screen', description:`Show something on the robot's screen instead of the face (a small face stays in the corner). kind "video": play YouTube. Search the web first and pass 2 or 3 different youtube.com or youtu.be links in urls (best first; official or popular uploads, as some owners block playing outside YouTube, and the next is tried automatically). kind "pictures": a slideshow from ${S.user}'s art library, collection = one of: ${library ? library.collections.map(c => c.title).join('; ') : 'Animals & sea life; Dinosaurs; Space; Christmas'}. kind "image_search": pictures of anything from the web, query = a few plain words (e.g. "snow leopard", "Eiffel Tower at night"). kind "map": a Google map of a place, place = what to show. kind "directions": a route on Google Maps, destination = where to, origin = where from (leave out to start from home, ${S.town || 'Hay-on-Wye'}), mode = driving, walking, transit or cycling. kind "weather": a 7-day weather card, place optional (defaults to home); use it whenever asked about the weather or forecast. kind "recipe": cook-along mode, pass title, ingredients (list with amounts) and steps (short, one action each; search the web for a good recipe first if needed); the user then says "next step", "back", "repeat", "ingredients". kind "photos": the family photo slideshow. kind "clock": a big clock. kind "timers": show running timers. kind "shopping_list": show the shopping list with a QR code to take it to a phone. kind "pause" / "resume": pause or carry on the video. kind "close": go back to the face.`,
-      input_schema:{type:'object', properties:{kind:{type:'string', enum:['video', 'pictures', 'image_search', 'map', 'directions', 'weather', 'recipe', 'photos', 'clock', 'timers', 'shopping_list', 'pause', 'resume', 'close']}, ingredients:{type:'array', items:{type:'string'}}, steps:{type:'array', items:{type:'string'}}, place:{type:'string'}, destination:{type:'string'}, origin:{type:'string'}, mode:{type:'string', enum:['driving', 'walking', 'transit', 'cycling']}, urls:{type:'array', items:{type:'string'}}, url:{type:'string'}, collection:{type:'string'}, query:{type:'string'}, title:{type:'string'}}, required:['kind']}};
+    const screenTool = {name:'show_on_screen', description:`Show something on the robot's screen instead of the face (a small face stays in the corner). kind "video": play YouTube. Search the web first and pass 2 or 3 different youtube.com or youtu.be links in urls (best first; official or popular uploads, as some owners block playing outside YouTube, and the next is tried automatically). kind "pictures": a slideshow from ${S.user}'s art library, collection = one of: ${library ? library.collections.map(c => c.title).join('; ') : 'Animals & sea life; Dinosaurs; Space; Christmas'}. kind "image_search": pictures of anything from the web, query = a few plain words (e.g. "snow leopard", "Eiffel Tower at night"). kind "map": a Google map of a place, place = what to show. kind "directions": a route on Google Maps, destination = where to, origin = where from (leave out to start from home, ${S.town || 'Hay-on-Wye'}), mode = driving, walking, transit or cycling. kind "weather": a 7-day weather card, place optional (defaults to home); use it whenever asked about the weather or forecast. kind "recipe": cook-along mode, pass title, ingredients (list with amounts) and steps (short, one action each; search the web for a good recipe first if needed); the user then says "next step", "back", "repeat", "ingredients". kind "photos": a slideshow of ${S.user}'s own photos on the tablet, album = one of ${Object.keys(ALBUMS).map(a => `"${a}" (${ALBUMS[a]})`).join(', ') || '"Family", "Art"'}, or "All" (e.g. "show my art" means album Art). kind "clock": a big clock. kind "timers": show running timers. kind "shopping_list": show the shopping list with a QR code to take it to a phone. kind "pause" / "resume": pause or carry on the video. kind "close": go back to the face.`,
+      input_schema:{type:'object', properties:{kind:{type:'string', enum:['video', 'pictures', 'image_search', 'map', 'directions', 'weather', 'recipe', 'photos', 'clock', 'timers', 'shopping_list', 'pause', 'resume', 'close']}, ingredients:{type:'array', items:{type:'string'}}, steps:{type:'array', items:{type:'string'}}, place:{type:'string'}, destination:{type:'string'}, origin:{type:'string'}, mode:{type:'string', enum:['driving', 'walking', 'transit', 'cycling']}, urls:{type:'array', items:{type:'string'}}, url:{type:'string'}, collection:{type:'string'}, album:{type:'string'}, query:{type:'string'}, title:{type:'string'}}, required:['kind']}};
     const timerTool = {name:'timer', description:'Kitchen timers. action "set" with minutes and/or seconds and an optional short label (e.g. "pasta"); "cancel" with which = a label, or "all" (leave out for the latest); "list" to hear what is running. A countdown shows in the corner and an alarm sounds at the end.',
       input_schema:{type:'object', properties:{action:{type:'string', enum:['set', 'cancel', 'list']}, minutes:{type:'number'}, seconds:{type:'number'}, label:{type:'string'}, which:{type:'string'}}, required:['action']}};
     const shopTool = {name:'shopping_list', description:`${S.user}'s shopping list, kept on the robot. action "add" or "remove" with items (each a short item name, e.g. "milk", "2 tins of tomatoes"), "clear" to empty it, "show" to put it on the screen with a QR code for his phone.`,
@@ -1078,7 +1098,7 @@ async function ask(text) {
           else if (q.kind === 'image_search') { const pics = await searchImages(q.query || ''); ok = showPictures(pics, q.query); msg = ok ? `Showing ${pics.length} pictures of ${q.query}, changing every 8 seconds.` : `I could not find pictures of ${q.query}.`; }
           else if (q.kind === 'weather') { let sum = null; try { sum = await showWeather(q.place); } catch (e) { console.warn(e); } ok = !!sum; msg = ok ? 'The weather card is on the screen. Forecast: ' + sum + ' Say one short sentence about it.' : 'The weather service did not answer.'; shownThisTurn = false; weatherTurn = true; }
           else if (q.kind === 'recipe') { ok = showRecipe(q); msg = ok ? `The recipe is on the screen showing the ingredients. Say only: "Here's the recipe. Say next step when you're ready."` : 'Pass the steps.'; shownThisTurn = false; }
-          else if (q.kind === 'photos') { ok = await showPhotos(false); msg = ok ? 'The family photos are on.' : 'There are no family photos on this tablet yet. They can be added in Settings.'; }
+          else if (q.kind === 'photos') { await refreshAlbums(); const al = albumMatch(q.album) || 'All'; ok = await showPhotos(false, al); msg = ok ? `The ${al === 'All' ? '' : al + ' '}photos are on.` : `There are no ${al === 'All' ? '' : al + ' '}photos on this tablet yet. They can be added in Settings.`; }
           else if (q.kind === 'clock') { ok = showClock(new Date().getHours() >= 21 || new Date().getHours() < 7, false); msg = 'The clock is on.'; }
           else if (q.kind === 'timers') { ok = showTimers(false); msg = ok ? 'Timers are on the screen.' : 'No timers are running.'; }
           else if (q.kind === 'shopping_list') { ok = showShop(); msg = 'The list is on the screen. It has: ' + (HS.shop.filter(x => !x.done).map(x => x.item).join(', ') || 'nothing'); }
@@ -1667,11 +1687,22 @@ function vxInfo(msg) {
   $('vxCopy').style.display = have === MY_VOICES.length ? 'none' : '';
   $('vxInfo').textContent = msg || (S.vx.length ? 'Your Voxtral voices: ' + S.vx.map(v => v.name).join(', ') + '. Pick them in the voice list above.' : 'Voxtral copies a voice from a short recording (5 to 25 seconds). Only use voices you have permission to copy: your own, family who agree, or voices you designed.');
 }
-['phOn', 'phFrom', 'phTo', 'ckOn', 'ckFrom', 'ckTo'].forEach(id => $(id).addEventListener('change', () => {
-  HS.idle = {photosOn:$('phOn').checked, photosFrom:$('phFrom').value || '18:00', photosTo:$('phTo').value || '22:00', clockOn:$('ckOn').checked, clockFrom:$('ckFrom').value || '22:00', clockTo:$('ckTo').value || '07:00'}; saveHS();
+['phOn', 'phFrom', 'phTo', 'phAlbum', 'ckOn', 'ckFrom', 'ckTo'].forEach(id => $(id).addEventListener('change', () => {
+  HS.idle = {photosOn:$('phOn').checked, photosFrom:$('phFrom').value || '18:00', photosTo:$('phTo').value || '22:00', photoAlbum:$('phAlbum').value || 'All', clockOn:$('ckOn').checked, clockFrom:$('ckFrom').value || '22:00', clockTo:$('ckTo').value || '07:00'}; saveHS();
 }));
 $('phAdd').addEventListener('click', () => phFile.click());
-$('phClear').addEventListener('click', async () => { if (!confirm('Remove all the photos from this tablet?')) return; await photoTx('readwrite', st => st.clear()).catch(() => {}); photoInfo(); });
+$('phPick').addEventListener('change', () => {
+  if ($('phPick').value !== '__new') { HS.lastAlbum = $('phPick').value; saveHS(); return; }
+  const name = (prompt('Name for the new album?', '') || '').trim().slice(0, 30);
+  if (name && !HS.albums.some(a => a.toLowerCase() === name.toLowerCase())) { HS.albums.push(name); }
+  HS.lastAlbum = name || HS.lastAlbum; saveHS(); $('phPick').value = ''; photoInfo();
+});
+$('phClear').addEventListener('click', async () => {
+  const al = $('phPick').value; if (!al || al === '__new' || !confirm(`Remove all the photos in "${al}" from this tablet?`)) return;
+  const all = await photoTx('readonly', st => st.getAll()).catch(() => []);
+  await photoTx('readwrite', st => { for (const p of all) if (albumOf(p) === al) st.delete(p.id); }).catch(() => {});
+  if (!['Family', 'Art'].includes(al)) HS.albums = HS.albums.filter(a => a !== al); saveHS(); photoInfo();
+});
 $('faceStyle').addEventListener('change', () => { S.pface[S.persona] = $('faceStyle').value; save(); });
 $('elVoice').addEventListener('change', () => { showVoiceNote(); if (voiceKind($('elVoice').value).kind === 'kokoro' && !inClaude) getKokoro().catch(() => {}); });
 $('vxCopy').addEventListener('click', async () => {
