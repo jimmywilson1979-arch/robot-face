@@ -5,6 +5,10 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <meta name="theme-color" content="#000000">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<meta name="mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <title>Claude Robot Face</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -115,6 +119,7 @@
   <button class="btn" id="talkBtn" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg><span>Talk</span></button>
   <button class="btn" id="typeBtn" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="2" y="6" width="20" height="12" rx="2"/><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M7 14h10"/></svg><span>Type</span></button>
   <button class="btn" id="showBtn" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="2" y="4" width="20" height="14" rx="2"/><path d="M10 8.5v5l4-2.5z" fill="currentColor"/><path d="M8 21h8"/></svg><span>Show</span></button>
+  <button class="btn round" id="fsBtn" type="button" aria-label="Full screen" title="Full screen"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg></button>
   <button class="btn round" id="setBtn" type="button" aria-label="Settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg></button>
 </div>
 
@@ -132,7 +137,7 @@
 </div>
 <div id="sheet">
   <div class="panel">
-    <h2>Robot settings <span class="note" style="font-size:13px;font-weight:400">version 24 Nov 2026, 01:30</span></h2>
+    <h2>Robot settings <span class="note" style="font-size:13px;font-weight:400">version 24 Nov 2026, 01:45</span></h2>
     <p class="note" id="modeNote"></p>
     <div class="row"><label for="persona">Personality</label><select id="persona"></select>
       <p class="note" id="personaNote" style="margin:6px 0 0"></p></div>
@@ -1802,6 +1807,26 @@ $('closeSet').addEventListener('click', () => {
   stopWake(); startWake(); setStatus(readyText()); showBar();
 });
 $('sheet').addEventListener('click', e => { if (e.target.id === 'sheet') $('closeSet').click(); });
+
+// ---------- full screen (and keep the screen awake) ----------
+const isApp = () => matchMedia('(display-mode: fullscreen), (display-mode: standalone)').matches;
+const inFS = () => !!(document.fullscreenElement || document.webkitFullscreenElement);
+async function goFull() {
+  try { const el = document.documentElement; await (el.requestFullscreen ? el.requestFullscreen({navigationUI:'hide'}) : el.webkitRequestFullscreen()); } catch (e) { }
+}
+function fsIcon() { $('fsBtn').style.display = isApp() && !inFS() && matchMedia('(display-mode: fullscreen)').matches ? 'none' : ''; }
+$('fsBtn').addEventListener('click', () => { if (inFS()) (document.exitFullscreen || document.webkitExitFullscreen).call(document); else goFull(); });
+document.addEventListener('fullscreenchange', fsIcon); fsIcon();
+// the first tap goes full screen by itself (browsers only allow it after a tap)
+if (!inClaude) window.addEventListener('pointerup', function firstTap(e) {
+  if (e.target.closest('#sheet, #showPanel, #typebox, #fsBtn')) return;
+  window.removeEventListener('pointerup', firstTap, true);
+  if (!inFS() && S.autoFull !== false) goFull();
+}, true);
+let wakeLock = null;
+async function keepAwake() { try { if ('wakeLock' in navigator && document.visibilityState === 'visible') { wakeLock = await navigator.wakeLock.request('screen'); } } catch (e) { } }
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') keepAwake(); });
+keepAwake(); window.addEventListener('pointerdown', () => { if (!wakeLock || wakeLock.released) keepAwake(); }, {passive:true});
 
 // ---------- start ----------
 setTimeout(() => { if (!inClaude && Object.keys(PERSONAS).some(k => voiceKind(voiceChoice(k)).kind === 'kokoro')) getKokoro().catch(() => {}); }, 4000);

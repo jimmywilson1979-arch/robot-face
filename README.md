@@ -30,6 +30,11 @@ The face of James's home robot: an old Android phone becomes the robot's head, a
 - **Personalities** (Settings → Personality), each with its own voice and face colour: 🎩 Butler (Jarvis style), 🪨 Rocky from *Project Hail Mary* (fan version, home use only: clipped speech, musical chords before he talks; uses your designed "Alien" voice), 🚕 New Yorker (gruff cab driver, heart of gold), 🦁 Wildlife Narrator (narrates your home like a nature documentary, an original character; uses your designed "David A" voice), 🏴‍☠️ Pirate Captain, ⚽ Football Commentator, and ✨ Make your own (type a name and a description). Each personality remembers its own voice: pick "Free device voice" or any ElevenLabs voice, or paste a voice ID. You can also just ask: "talk like a pirate", "be Rocky", "back to normal". Each personality also has its own talking speed (🐢 70% to 🐇 120%), saved as soon as you move the slider. Choosing a personality in settings starts a fresh chat.
 - Gets sleepy when left alone, wakes on a tap or when it sees movement
 
+## Full screen
+- The first tap on the face goes full screen (browsers only allow it after a tap), and the ⛶ button switches it on and off.
+- Best: install it as an app. In Chrome tap ⋮, then **Add to home screen**, then **Install**. The Robot icon then always opens full screen with no address bar.
+- The screen is kept awake while the robot is open.
+
 ## Setting it up on the robot phone
 1. Open the link above in Chrome on the phone.
 2. Paste your Claude API key in settings (it's saved only on that phone).
