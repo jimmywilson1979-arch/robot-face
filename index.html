@@ -132,7 +132,7 @@
 </div>
 <div id="sheet">
   <div class="panel">
-    <h2>Robot settings <span class="note" style="font-size:13px;font-weight:400">version 24 Nov 2026, 01:20</span></h2>
+    <h2>Robot settings <span class="note" style="font-size:13px;font-weight:400">version 24 Nov 2026, 01:30</span></h2>
     <p class="note" id="modeNote"></p>
     <div class="row"><label for="persona">Personality</label><select id="persona"></select>
       <p class="note" id="personaNote" style="margin:6px 0 0"></p></div>
@@ -149,6 +149,8 @@
         <p class="note" id="voiceNote" style="margin:6px 0 0"></p></div>
       <div class="row" id="elCustomRow"><label for="elCustom">ElevenLabs voice ID</label><input id="elCustom" type="text" placeholder="e.g. from your ElevenLabs voice library"></div>
       <div class="row"><label for="elKey">ElevenLabs API key (for ElevenLabs voices)</label><input id="elKey" type="password" placeholder="sk_…  (leave blank if you don't use them)"></div>
+      <div class="row"><label for="gKey">Google Cloud API key (for Google voices)</label><input id="gKey" type="password" placeholder="AIza…  (leave blank if you don't use them)">
+        <p class="note" id="gUse" style="margin:6px 0 0"></p></div>
       <div class="row"><label for="mxKey">Mistral API key (for Voxtral voices)</label><input id="mxKey" type="password" placeholder="From console.mistral.ai (leave blank if you don't use them)"></div>
       <div class="row" id="vxRow"><label>Voxtral voices</label>
         <div style="display:flex;gap:8px;flex-wrap:wrap">
@@ -206,7 +208,7 @@
 (() => {
 'use strict';
 // ---------- settings ----------
-const DEFAULTS = {apiKey:'', model:'claude-haiku-5-5', voice:'', color:'#dff1ff', captions:true, followUp:true, sight:false, cam:false, user:'James', town:'Hay-on-Wye', pvKey:'', pvWord:'Jarvis', elKey:'', elVoice:'wiF43F1vngB3iRFsbWhJ', elCustom:'', persona:'butler', rockyEl:'', chords:true, pvoice:{}, pcustom:{}, pspeed:{}, pface:{}, mxKey:'', vx:[], cName:'', cDesc:''};
+const DEFAULTS = {apiKey:'', model:'claude-haiku-5-5', voice:'', color:'#dff1ff', captions:true, followUp:true, sight:false, cam:false, user:'James', town:'Hay-on-Wye', pvKey:'', pvWord:'Jarvis', elKey:'', elVoice:'wiF43F1vngB3iRFsbWhJ', elCustom:'', persona:'butler', rockyEl:'', chords:true, pvoice:{}, pcustom:{}, pspeed:{}, pface:{}, gKey:'', gUsed:{}, mxKey:'', vx:[], cName:'', cDesc:''};
 let S = {...DEFAULTS};
 try { S = {...DEFAULTS, ...JSON.parse(localStorage.getItem('robotface.settings') || '{}')}; } catch (e) {}
 S.pvoice = S.pvoice || {}; S.pcustom = S.pcustom || {}; S.pspeed = S.pspeed || {};
@@ -1218,11 +1220,42 @@ const KOKORO = [['bm_george','George – mature British'],['bm_fable','Fable –
 const ELEVEN = [['JBFqnCBsd6RMkjVDRZzb','George – warm, mature British (free plan OK)'],['onwK4e9ZLuTAKqWW03F9','Daniel – steady British broadcaster (free plan OK)'],
   ['idNCckeZX5jNrcdGNPpB','New Yorker – your designed voice (free plan OK)'],['0xHX5xyTGOdKJBX9yNZt','Alien – your designed voice (free plan OK)'],['486MCYDUznbvZYTwgjzQ','David A – your designed voice (free plan OK)'],
   ['wiF43F1vngB3iRFsbWhJ','Butler – Nathaniel (paid plan)'],['erjfZbWOeOlXoejyglLN','Lord Alistair – posh British (paid plan)'],['7p1Ofvcwsv7UBPoFNcpI','Julian – deep, rich British (paid plan)']];
+// Google Cloud voices: Chirp 3 HD has 1 million free characters a month, WaveNet 4 million
+const GOOGLE = [['en-GB-Chirp3-HD-Charon', 'Charon – British man, deep and calm'], ['en-GB-Chirp3-HD-Iapetus', 'Iapetus – British man, clear'], ['en-GB-Chirp3-HD-Orus', 'Orus – British man, firm'],
+  ['en-GB-Chirp3-HD-Algieba', 'Algieba – British man, smooth'], ['en-GB-Chirp3-HD-Enceladus', 'Enceladus – British man, breathy, soft'], ['en-GB-Chirp3-HD-Schedar', 'Schedar – British man, even'],
+  ['en-GB-Chirp3-HD-Sadaltager', 'Sadaltager – British man, knowledgeable'], ['en-GB-Chirp3-HD-Puck', 'Puck – British man, upbeat'], ['en-GB-Chirp3-HD-Kore', 'Kore – British woman, firm'],
+  ['en-GB-Chirp3-HD-Aoede', 'Aoede – British woman, breezy'], ['en-US-Chirp3-HD-Fenrir', 'Fenrir – American man, excitable'], ['en-US-Chirp3-HD-Algenib', 'Algenib – American man, gravelly'],
+  ['en-GB-Wavenet-B', 'WaveNet B – British man (older, 4 million free)'], ['en-GB-Wavenet-D', 'WaveNet D – British man, older style (4 million free)']];
+const GOOGLE_LIMIT = {chirp:950000, wavenet:3900000}; // stop just short of the free allowance
+const gMonth = () => new Date().toISOString().slice(0, 7);
+const gTier = name => /Chirp3/.test(name) ? 'chirp' : 'wavenet';
+const gUsedNow = tier => (S.gUsed && S.gUsed[gMonth()] && S.gUsed[gMonth()][tier]) || 0;
+function gCount(tier, n) { const m = gMonth(); S.gUsed = {[m]:Object.assign({chirp:0, wavenet:0}, (S.gUsed || {})[m])}; S.gUsed[m][tier] += n; save(); }
+async function speakGoogle(text, name) {
+  if (!S.gKey) throw {friendly:'Add your Google Cloud API key in settings to use Google voices, so I used the free one.'};
+  const tier = gTier(name);
+  if (gUsedNow(tier) + text.length > GOOGLE_LIMIT[tier]) throw {friendly:'This month\'s free Google voice allowance is used up, so I am using the device voice until next month.'};
+  const body = rate => ({input:{text}, voice:{languageCode:name.slice(0, 5), name}, audioConfig:Object.assign({audioEncoding:'MP3'}, rate ? {speakingRate:rate} : {})});
+  let r = await fetch('https://texttospeech.googleapis.com/v1/text:synthesize?key=' + encodeURIComponent(S.gKey), {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body(speedOf() !== 1 ? speedOf() : 0))});
+  if (r.status === 400 && speedOf() !== 1) r = await fetch('https://texttospeech.googleapis.com/v1/text:synthesize?key=' + encodeURIComponent(S.gKey), {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body(0))});
+  if (!r.ok) {
+    const t = await r.text(); console.warn('Google TTS', r.status, t); dbg('Google voice ' + r.status + ': ' + t.slice(0, 140));
+    throw {friendly: /API_KEY_INVALID|API key not valid/i.test(t) ? 'Google refused that API key, so I used the free voice. Check it in settings.'
+      : /SERVICE_DISABLED|has not been used|is disabled/i.test(t) ? 'The Text-to-Speech API is not switched on in your Google Cloud project yet, so I used the free voice.'
+      : /BILLING|billing/i.test(t) ? 'Google needs billing switched on for the project (it stays free within the monthly allowance), so I used the free voice.'
+      : /referer|referrer|blocked/i.test(t) ? 'Your Google key is not allowed on this website yet. Add jimmywilson1979-arch.github.io to its website list.'
+      : 'The Google voice failed, so I used the free one.'};
+  }
+  const j = await r.json(); gCount(tier, text.length);
+  const bytes = Uint8Array.from(atob(j.audioContent), c => c.charCodeAt(0));
+  await playBlob(new Blob([bytes], {type:'audio/mpeg'}));
+}
 const MY_VOICES = [{name:'New Yorker', file:'voices/new-yorker.mp3', el:'idNCckeZX5jNrcdGNPpB'}, {name:'Alien', file:'voices/alien.mp3', el:'0xHX5xyTGOdKJBX9yNZt'}, {name:'David A', file:'voices/narrator.mp3', el:'486MCYDUznbvZYTwgjzQ'}];
 function voiceKind(v = voiceChoice()) {
   if (!v || v === 'none') return {kind:'device'};
   if (v.startsWith('kokoro:')) return {kind:'kokoro', id:v.slice(7)};
   if (v.startsWith('vx:')) return {kind:'voxtral', id:v.slice(3)};
+  if (v.startsWith('g:')) return {kind:'google', id:v.slice(2)};
   if (v === 'custom') return {kind:'eleven', id:(S.pcustom[S.persona] || '').trim()};
   return {kind:'eleven', id:v};
 }
@@ -1363,6 +1396,7 @@ async function speak(text) {
     try {
       if (vk.kind === 'kokoro') await speakKokoro(text, vk.id);
       else if (vk.kind === 'voxtral') await speakVoxtral(text, vk.id);
+      else if (vk.kind === 'google') await speakGoogle(text, vk.id);
       else if (S.elKey && vk.id) await speakEleven(text, vk.id);
       else throw {quiet:true, friendly:'No ElevenLabs key, so using the device voice.'};
       talking = false; return;
@@ -1641,7 +1675,8 @@ function openSheet() {
   $('cName').value = S.cName || ''; $('cDesc').value = S.cDesc || '';
   const I = HS.idle; $('phOn').checked = I.photosOn; $('phFrom').value = I.photosFrom; $('phTo').value = I.photosTo; $('ckOn').checked = I.clockOn; $('ckFrom').value = I.clockFrom; $('ckTo').value = I.clockTo; photoInfo();
   $('faceStyle').innerHTML = Object.keys(FACE_NAMES).map(k => `<option value="${k}">${FACE_NAMES[k]}</option>`).join(''); $('faceStyle').value = faceOf();
-  $('elKey').value = S.elKey; $('mxKey').value = S.mxKey || ''; fillVoiceList();
+  $('elKey').value = S.elKey; $('mxKey').value = S.mxKey || ''; $('gKey').value = S.gKey || '';
+  $('gUse').textContent = `This month: ${gUsedNow('chirp').toLocaleString()} of 1,000,000 free Chirp HD characters, ${gUsedNow('wavenet').toLocaleString()} of 4,000,000 WaveNet. The robot stops just short of the limit.`; fillVoiceList();
   $('elVoice').value = voiceChoice(); if (!$('elVoice').value) $('elVoice').value = 'custom';
   showVoiceNote(); vxInfo();
   $('elCustom').value = S.pcustom[S.persona] || '';
@@ -1663,7 +1698,7 @@ $('moodBtns').addEventListener('click', e => {
 function readVoiceSettings() {
   S.voice = $('voice').value;
   // the voice boxes belong to the personality that was showing
-  if (!inClaude) { S.elKey = $('elKey').value.trim(); S.mxKey = $('mxKey').value.trim(); S.pvoice[S.persona] = $('elVoice').value; S.pcustom[S.persona] = $('elCustom').value.trim(); elWarned = false; }
+  if (!inClaude) { S.elKey = $('elKey').value.trim(); S.mxKey = $('mxKey').value.trim(); S.gKey = $('gKey').value.trim(); S.pvoice[S.persona] = $('elVoice').value; S.pcustom[S.persona] = $('elCustom').value.trim(); elWarned = false; }
   S.cName = $('cName').value.trim(); S.cDesc = $('cDesc').value.trim();
   if (setPersona($('persona').value)) history.length = 0; // fresh chat so the new character starts clean
   save();
@@ -1672,6 +1707,7 @@ $('persona').addEventListener('change', () => { readVoiceSettings(); openSheet()
 function fillVoiceList() {
   const o = (v, l) => `<option value="${esc(v)}">${esc(l)}</option>`;
   $('elVoice').innerHTML = `<optgroup label="Free">${o('none', 'Device voice (built in, instant)')}${KOKORO.map(([v, l]) => o('kokoro:' + v, 'Kokoro ' + l)).join('')}</optgroup>` +
+    `<optgroup label="Google (free up to a monthly allowance)">${GOOGLE.map(([v, l]) => o('g:' + v, 'Google ' + l)).join('')}</optgroup>` +
     `<optgroup label="Voxtral (Mistral, very cheap)">${S.vx.length ? S.vx.map(v => o('vx:' + v.id, v.name + ' (Voxtral)')).join('') : '<option disabled>No Voxtral voices yet: add them below</option>'}</optgroup>` +
     `<optgroup label="ElevenLabs (uses credits)">${ELEVEN.map(([v, l]) => o(v, l)).join('')}${o('custom', 'Another ElevenLabs voice (paste its ID)')}</optgroup>`;
 }
@@ -1679,6 +1715,7 @@ function showVoiceNote() {
   const k = voiceKind($('elVoice').value);
   $('elCustomRow').style.display = $('elVoice').value === 'custom' ? '' : 'none';
   $('voiceNote').textContent = k.kind === 'kokoro' ? 'Free and runs on this device. The first time, it downloads about 90 MB (use Wi-Fi), then works offline.'
+    : k.kind === 'google' ? 'Google voice: about a second to start, sounds the same every time. Free up to the monthly allowance shown under the Google key below; after that it switches to the device voice by itself, so you are never charged.'
     : k.kind === 'voxtral' ? 'Made by Mistral. Roughly 1p for every 5 replies (about £1 for 500). Needs your Mistral API key below.'
     : k.kind === 'eleven' ? 'ElevenLabs: uses your ElevenLabs credits. Needs your ElevenLabs API key below.' : 'Free, instant, built into this device.';
 }
