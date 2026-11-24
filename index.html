@@ -132,7 +132,7 @@
 </div>
 <div id="sheet">
   <div class="panel">
-    <h2>Robot settings</h2>
+    <h2>Robot settings <span class="note" style="font-size:13px;font-weight:400">version 24 Nov 2026, 01:15</span></h2>
     <p class="note" id="modeNote"></p>
     <div class="row"><label for="persona">Personality</label><select id="persona"></select>
       <p class="note" id="personaNote" style="margin:6px 0 0"></p></div>
@@ -192,6 +192,8 @@
         </div>
       </div>
     </div>
+    <div class="row"><label>Troubleshooting: what happened recently</label>
+      <pre id="dbgLog" style="background:var(--card);border:1px solid var(--line);border-radius:10px;padding:10px;font:12px/1.4 ui-monospace,monospace;white-space:pre-wrap;max-height:180px;overflow:auto;margin:0;color:var(--quiet)"></pre></div>
     <div class="row"><label>Try an expression</label></div>
     <div class="moods" id="moodBtns"></div>
     <div class="actions"><span class="mode" id="modeTag"></span><button class="btn" id="closeSet" type="button">Done</button></div>
@@ -656,8 +658,16 @@ async function showWeather(place) {
 }
 
 // ----- recipes: step by step, hands free -----
+const asList = v => {
+  if (v == null) return [];
+  if (typeof v === 'string') v = v.split(/\n+|(?:^|\s)(?=\d+[.)]\s)/);
+  if (!Array.isArray(v)) v = Object.values(v);
+  return v.map(x => typeof x === 'string' ? x : x && (x.text || x.step || x.instruction || x.name || x.item || Object.values(x).join(' ')) || '')
+    .map(x => String(x).replace(/^\s*(?:step\s*\d+\s*[.):-]?|\d+\s*[.)])\s*/i, '').replace(/^[-•*]\s*/, '').trim()).filter(Boolean);
+};
 function showRecipe(r) {
-  if (r) HS.recipe = {title:r.title || 'Recipe', ingredients:r.ingredients || [], steps:r.steps || [], step:-1};
+  if (r) HS.recipe = {title:r.title || r.name || 'Recipe', ingredients:asList(r.ingredients), steps:asList(r.steps || r.method || r.instructions), step:-1};
+  dbg(`Recipe: ${HS.recipe ? HS.recipe.title + ', ' + HS.recipe.ingredients.length + ' ingredients, ' + HS.recipe.steps.length + ' steps' : 'none'}`);
   if (!HS.recipe || !HS.recipe.steps.length) return false;
   saveHS(); renderRecipe(); return true;
 }
@@ -998,6 +1008,9 @@ function systemPrompt() {
     `It is now ${now}.`;
 }
 let shownThisTurn = false, weatherTurn = false;
+const DBG = [];
+function dbg(t) { DBG.push(new Date().toLocaleTimeString('en-GB') + '  ' + t); while (DBG.length > 40) DBG.shift(); const el = $('dbgLog'); if (el) el.textContent = DBG.slice().reverse().join('\n'); }
+const RECIPE_ASK = /\b(recipe|how (do|can|would|should) (i|you|we) (make|cook|bake|do)|how to (make|cook|bake)|help me (make|cook|bake)|let'?s (make|cook|bake)|i want to (make|cook|bake)|show me how to (make|cook|bake)|cook ?along)\b/i;
 async function ask(text) {
   shownThisTurn = false; weatherTurn = false;
   history.push({role:'user', content:text});
@@ -1021,8 +1034,11 @@ async function ask(text) {
     const shopTool = {name:'shopping_list', description:`${S.user}'s shopping list, kept on the robot. action "add" or "remove" with items (each a short item name, e.g. "milk", "2 tins of tomatoes"), "clear" to empty it, "show" to put it on the screen with a QR code for his phone.`,
       input_schema:{type:'object', properties:{action:{type:'string', enum:['add', 'remove', 'clear', 'show']}, items:{type:'array', items:{type:'string'}}}, required:['action']}};
     const personaTool = {name:'set_personality', description:"Switch the robot's personality, voice and face colour when the user asks for a different character.", input_schema:{type:'object', properties:{personality:{type:'string', enum:Object.keys(PERSONAS)}}, required:['personality']}};
+    const wantRecipe = RECIPE_ASK.test(text) && !/\b(timer|list|shopping)\b/i.test(text);
+    let forceTool = wantRecipe;
     const call = async (msgs, withSearch) => {
-      const body = {model:S.model, max_tokens:2500, system:systemPrompt(), messages:msgs, tools:[lookTool, personaTool, faceTool, screenTool, timerTool, shopTool]};
+      const body = {model:S.model, max_tokens:2500, system:systemPrompt() + (forceTool ? ' This is a recipe request: call show_on_screen with kind "recipe" now, with title, ingredients and steps.' : ''), messages:msgs, tools:[lookTool, personaTool, faceTool, screenTool, timerTool, shopTool]};
+      if (forceTool) body.tool_choice = {type:'tool', name:'show_on_screen'};
       if (withSearch) body.tools.push(search);
       return fetch('https://api.anthropic.com/v1/messages', {
         method:'POST',
@@ -1034,19 +1050,20 @@ async function ask(text) {
     for (let step = 0; step < 6; step++) {
       let r = await call(msgs, true);
       if (!r.ok && r.status === 400) { // try once more without web search, for this question only
-        const t = await r.text(); console.warn('Claude 400', t);
+        const t = await r.text(); console.warn('Claude 400', t); dbg('Claude refused (400): ' + t.slice(0, 160));
         r = await call(msgs, false);
       }
       if (!r.ok) {
-        const t = await r.text(); console.warn('Claude', r.status, t);
+        const t = await r.text(); console.warn('Claude', r.status, t); dbg(`Claude error ${r.status}: ` + t.slice(0, 160));
         throw {friendly: r.status === 401 ? 'That API key was refused. Check it in settings.' : r.status === 429 ? 'I need a short breather. Try again in a moment.' : r.status === 529 || r.status >= 500 ? 'Claude is very busy right now. Try again in a moment.' : `I could not reach Claude just now (${r.status}).`, detail:t};
       }
-      const j = await r.json();
-      parts = j.content || []; // only the last answer is spoken, not the "let me check" bits along the way
+      const j = await r.json(); forceTool = false;
+      parts = j.content || [];
+      dbg(`Claude: ${j.stop_reason}${(j.content || []).filter(c => c.type === 'tool_use' || c.type === 'server_tool_use').map(c => ' → ' + c.name + (c.input && c.input.kind ? ':' + c.input.kind : '') + (c.input && c.input.action ? ':' + c.input.action : '')).join('')}`); // only the last answer is spoken, not the "let me check" bits along the way
       if (j.stop_reason === 'pause_turn') { msgs = msgs.concat([{role:'assistant', content:j.content}]); continue; }
       if (j.stop_reason !== 'tool_use') break;
       const results = [];
-      for (const b of (j.content || []).filter(c => c.type === 'tool_use')) {
+      for (const b of (j.content || []).filter(c => c.type === 'tool_use')) { try {
         if (b.name === 'look') {
           const shot = await takePhoto();
           results.push({type:'tool_result', tool_use_id:b.id, content: shot
@@ -1085,7 +1102,7 @@ async function ask(text) {
           if (!PERSONAS[id]) results.push({type:'tool_result', tool_use_id:b.id, content:'No such personality.', is_error:true});
           else { setPersona(id); results.push({type:'tool_result', tool_use_id:b.id, content:`Now ${personaName(id)}. Reply in this character from now on.`}); }
         } else results.push({type:'tool_result', tool_use_id:b.id, content:'Unknown tool.', is_error:true});
-      }
+      } catch (err) { console.warn(err); dbg(`Tool ${b.name} failed: ${err && err.message}`); results.push({type:'tool_result', tool_use_id:b.id, content:'That did not work: ' + (err && err.message), is_error:true}); } }
       msgs = msgs.concat([{role:'assistant', content:j.content}, {role:'user', content:results}]);
       setMood('thinking'); setStatus('Thinking…');
     }
@@ -1150,7 +1167,7 @@ async function handle(text) {
   } catch (e) {
     thinking = false; talking = false;
     const msg = (e && e.friendly) || (e && e.code === 'rate_limited' ? 'I need a short breather. Try again in a moment.' : 'Something went wrong reaching Claude.');
-    setMood('sad', 3000); caption(text, msg, 8000); console.warn(e);
+    setMood('sad', 3000); caption(text, msg, 8000); console.warn(e); dbg('Problem: ' + msg + (e && e.message ? ' ' + e.message : ''));
   } finally {
     busy = false; activity(); setStatus(readyText());
     const wasVideo = vidHeld; releaseVideo();
