@@ -50,10 +50,28 @@
   .mode{font-size:13px;color:var(--quiet)}
   .mode b{color:var(--green);font-weight:600}
   video{display:none}
+  #screen{position:fixed;inset:0;background:#000;display:none;z-index:2}
+  #screen.show{display:block}
+  #scrContent{position:absolute;inset:0}
+  #scrContent iframe{width:100%;height:100%;border:0;display:block}
+  .slide{position:absolute;inset:0;background:#000 center/contain no-repeat;opacity:0;transition:opacity 1.2s}
+  .slide.on{opacity:1;animation:kb 9s ease-out forwards}
+  @keyframes kb{from{transform:scale(1)}to{transform:scale(1.06)}}
+  #scrTop{position:absolute;top:10px;right:10px;display:flex;gap:8px;z-index:3;transition:opacity .5s}
+  #scrTop.hide{opacity:0;pointer-events:none}
+  #scrTop .btn{padding:8px 12px;font-size:14px;background:rgba(20,22,28,.85)}
+  #scrName{position:absolute;left:50%;bottom:22px;transform:translateX(-50%);font:600 18px 'Barlow Condensed',sans-serif;letter-spacing:.04em;color:#fff;text-shadow:0 2px 8px #000;opacity:.85;z-index:3}
+  #mini{position:absolute;right:12px;bottom:12px;width:min(22vmin,150px);aspect-ratio:1;border-radius:18px;background:#000;border:1px solid #222;box-shadow:0 4px 18px #000a;z-index:3}
+  #status,#caption,#typebox,#bar{z-index:4}
+  #showPanel .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px;margin-bottom:12px}
+  #showPanel .grid button{border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:10px;padding:10px;font:500 14px Barlow,sans-serif;cursor:pointer;text-align:left}
 </style>
 </head>
 <body>
 <canvas id="face" aria-label="Robot face"></canvas>
+<div id="screen"><div id="scrContent"></div><div id="scrName"></div>
+  <div id="scrTop"><button class="btn" id="scrYT" type="button" style="display:none">Open in YouTube</button><button class="btn" id="scrClose" type="button">✕ Back to face</button></div>
+  <canvas id="mini" width="300" height="300" aria-label="Robot face"></canvas></div>
 <div id="status">Starting…</div>
 <div id="caption"></div>
 <form id="typebox" autocomplete="off">
@@ -63,9 +81,20 @@
 <div id="bar">
   <button class="btn" id="talkBtn" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg><span>Talk</span></button>
   <button class="btn" id="typeBtn" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="2" y="6" width="20" height="12" rx="2"/><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M7 14h10"/></svg><span>Type</span></button>
+  <button class="btn" id="showBtn" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="2" y="4" width="20" height="14" rx="2"/><path d="M10 8.5v5l4-2.5z" fill="currentColor"/><path d="M8 21h8"/></svg><span>Show</span></button>
   <button class="btn round" id="setBtn" type="button" aria-label="Settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg></button>
 </div>
 
+<div id="showPanel" style="position:fixed;inset:0;background:rgba(0,0,0,.7);display:none;align-items:center;justify-content:center;z-index:5">
+  <div class="panel">
+    <h2>Show on the screen</h2>
+    <div class="row"><label for="ytLink">A YouTube video (paste a link)</label>
+      <div style="display:flex;gap:8px"><input id="ytLink" type="text" placeholder="https://youtu.be/…" style="flex:1;background:var(--card);border:1px solid var(--line);color:var(--ink);border-radius:10px;padding:10px 12px;font:15px Barlow,sans-serif"><button class="btn" id="ytGo" type="button">Play</button></div></div>
+    <div class="row"><label>Picture slideshow from the art library</label><div class="grid" id="libGrid"><p class="note">Loading…</p></div></div>
+    <p class="note">Or just ask: "show me a video of puppies", "put the dinosaur pictures on", "back to your face".</p>
+    <div class="actions"><span></span><button class="btn" id="showClose" type="button">Close</button></div>
+  </div>
+</div>
 <div id="sheet">
   <div class="panel">
     <h2>Robot settings</h2>
@@ -199,6 +228,7 @@ function frame(now) {
   // timers
   if (moodUntil && now > moodUntil) { moodUntil = 0; mood = after; }
   const idle = now - lastActivity;
+  if (screenOpen) lastActivity = now; // don't nod off while showing something
   if (!talking && !listening && !thinking) {
     if (idle > 240000 && mood !== 'asleep') setMood('asleep');
     else if (idle > 90000 && mood === 'neutral') setMood('sleepy');
@@ -230,7 +260,7 @@ function frame(now) {
     if (lv >= 0 && (analysing || chirping)) { level += (Math.min(1, lv) - level) * .5; mo = .05 + level * .9; }
     else mo = .12 + .45 * Math.abs(Math.sin(now / 75 + Math.sin(now / 190) * 2)) * (0.6 + .4 * Math.random());
   }
-  draw(now, mo);
+  draw(now, mo); drawMini();
   requestAnimationFrame(frame);
 }
 
@@ -321,6 +351,78 @@ function drawClassic(now, mo, g = ctx, w = W, h = H) {
   }
   g.globalAlpha = 1;
 }
+
+// ---------- screen mode: videos and pictures ----------
+const LIB = 'https://jimmywilson1979-arch.github.io/art-library/';
+let library = null, screenOpen = false, scr = {kind:'', id:'', paused:false}, slideTimer = 0;
+fetch(LIB + 'library.json').then(r => r.json()).then(j => { library = j; }).catch(() => {});
+const ytId = u => { u = String(u || '').trim(); if (/^[\w-]{11}$/.test(u)) return u; const m = u.match(/(?:v=|youtu\.be\/|shorts\/|embed\/|live\/)([\w-]{11})/); return m ? m[1] : ''; };
+function openScreen() { screenOpen = true; $('screen').classList.add('show'); scrUI(); }
+function closeScreen() {
+  screenOpen = false; clearInterval(slideTimer); $('screen').classList.remove('show'); $('scrContent').innerHTML = ''; $('scrName').textContent = '';
+  scr = {kind:'', id:'', paused:false}; activity(); setStatus(readyText());
+}
+let scrTopTimer = 0;
+function scrUI() { $('scrTop').classList.remove('hide'); clearTimeout(scrTopTimer); scrTopTimer = setTimeout(() => $('scrTop').classList.add('hide'), 5000); }
+function showVideo(u, title) {
+  const id = ytId(u); if (!id) return false;
+  clearInterval(slideTimer);
+  $('scrContent').innerHTML = `<iframe id="ytf" allow="autoplay; encrypted-media; picture-in-picture; fullscreen" allowfullscreen src="https://www.youtube-nocookie.com/embed/${id}?autoplay=1&playsinline=1&rel=0&modestbranding=1&enablejsapi=1&origin=${encodeURIComponent(location.origin)}"></iframe>`;
+  $('scrName').textContent = ''; $('scrYT').style.display = ''; $('scrYT').onclick = () => window.open('https://www.youtube.com/watch?v=' + id, '_blank');
+  scr = {kind:'video', id, paused:false, title:title || ''}; openScreen(); return true;
+}
+function ytCmd(func) { const f = $('ytf'); if (f && f.contentWindow) f.contentWindow.postMessage(JSON.stringify({event:'command', func, args:[]}), '*'); }
+function findCollection(name) {
+  if (!library) return null;
+  const n = String(name || '').toLowerCase().trim(), cols = library.collections || [];
+  return cols.find(c => c.title.toLowerCase() === n) || cols.find(c => c.title.toLowerCase().includes(n) || n.includes(c.title.toLowerCase().split(' ')[0])) || null;
+}
+function showPictures(pics, title) {
+  pics = (pics || []).filter(p => p && p.src); if (!pics.length) return false;
+  $('scrYT').style.display = 'none';
+  $('scrContent').innerHTML = ''; let i = -1;
+  const step = () => {
+    i = (i + 1) % pics.length; const p = pics[i];
+    const d = document.createElement('div'); d.className = 'slide'; d.style.backgroundImage = `url("${p.src}")`;
+    $('scrContent').append(d); requestAnimationFrame(() => d.classList.add('on'));
+    $('scrName').textContent = p.name || '';
+    const old = [...$('scrContent').children].slice(0, -1); setTimeout(() => old.forEach(o => o.remove()), 1300);
+  };
+  clearInterval(slideTimer); step(); slideTimer = setInterval(step, 8000);
+  scr = {kind:'pictures', id:title || '', paused:false}; openScreen(); return true;
+}
+function showCollection(name) {
+  const c = findCollection(name); if (!c) return false;
+  const pics = c.items.map(it => ({src:LIB + it.file, name:it.name}));
+  for (let k = pics.length - 1; k > 0; k--) { const j = Math.floor(Math.random() * (k + 1)); [pics[k], pics[j]] = [pics[j], pics[k]]; }
+  return showPictures(pics, c.title);
+}
+// the video pauses while you talk to the robot, then carries on
+let vidHeld = false;
+function holdVideo() { if (screenOpen && scr.kind === 'video' && !vidHeld) { ytCmd('pauseVideo'); vidHeld = true; } }
+function releaseVideo() { if (vidHeld) { vidHeld = false; if (screenOpen && scr.kind === 'video') ytCmd('playVideo'); } }
+$('scrClose').addEventListener('click', closeScreen);
+$('screen').addEventListener('pointerdown', e => { if (e.target.closest('#scrTop')) return; scrUI(); showBar(); activity(); });
+$('mini').addEventListener('click', () => { showBar(); });
+// mini face in the corner, copied from the real one each frame
+const miniCtx = $('mini').getContext('2d');
+function drawMini() {
+  if (!screenOpen) return;
+  const m = $('mini'), s = Math.min(canvas.width, canvas.height) * .62;
+  miniCtx.fillStyle = '#000'; miniCtx.fillRect(0, 0, m.width, m.height);
+  miniCtx.drawImage(canvas, (canvas.width - s) / 2, canvas.height * .44 - s / 2, s, s, 0, 0, m.width, m.height);
+}
+// "Show" panel
+function openShowPanel() {
+  const g = $('libGrid');
+  g.innerHTML = library ? library.collections.filter(c => !/frames|quiz round|faces|enemies|tiles|hurt|orbs|tests/i.test(c.title)).map(c => `<button type="button" data-col="${esc(c.title)}">${esc(c.title)} <span class="note">(${c.items.length})</span></button>`).join('') : '<p class="note">Could not load the art library.</p>';
+  $('showPanel').style.display = 'flex'; showBar();
+}
+$('showBtn').addEventListener('click', openShowPanel);
+$('showClose').addEventListener('click', () => { $('showPanel').style.display = 'none'; });
+$('showPanel').addEventListener('click', e => { if (e.target.id === 'showPanel') $('showPanel').style.display = 'none'; });
+$('libGrid').addEventListener('click', e => { const b = e.target.closest('[data-col]'); if (b) { $('showPanel').style.display = 'none'; showCollection(b.dataset.col); } });
+$('ytGo').addEventListener('click', () => { if (showVideo($('ytLink').value)) { $('showPanel').style.display = 'none'; $('ytLink').value = ''; } else $('ytLink').placeholder = 'That is not a YouTube link'; });
 
 // ---------- face styles ----------
 const FACE_NAMES = {classic:'Classic eyes', orb:'Hologram orb', wave:'Sound wave', pixel:'Pixel LED'};
@@ -551,7 +653,7 @@ function systemPrompt() {
   const now = new Date().toLocaleString('en-GB', {weekday:'long', day:'numeric', month:'long', year:'numeric', hour:'2-digit', minute:'2-digit'});
   return `You are Claude, speaking as the voice of ${S.user}'s home robot: a small desk robot whose face is an old phone screen. ` +
     persona().prompt() +
-    (inClaude ? '' : `If ${S.user} asks you to change personality or voice (for example "talk like a pirate", "be Rocky", "back to normal"), use the set_personality tool, then reply in the new character. If asked to change your face or look, use set_face (classic eyes, hologram orb, sound wave, or pixel LED). Personalities: ${Object.keys(PERSONAS).filter(k => k !== 'custom' || S.cDesc).map(k => `${k} (${personaName(k)})`).join(', ')}; "normal" means butler. `) +
+    (inClaude ? '' : `If ${S.user} asks you to change personality or voice (for example "talk like a pirate", "be Rocky", "back to normal"), use the set_personality tool, then reply in the new character. If asked to show, play or put on a video, pictures or a slideshow, use show_on_screen (for videos, find a YouTube link with web search first), then say one short line; "back to your face" or "close it" closes it. If asked to change your face or look, use set_face (classic eyes, hologram orb, sound wave, or pixel LED). Personalities: ${Object.keys(PERSONAS).filter(k => k !== 'custom' || S.cDesc).map(k => `${k} (${personaName(k)})`).join(', ')}; "normal" means butler. `) +
     `Your words are spoken aloud, so answer in one to three short sentences of plain speech: no lists, no markdown, no emoji. ` +
     (inClaude ? `If asked for live information you cannot see (weather, news, scores), say briefly that you are not connected to that here. ` : `You can search the web for live information such as weather, news, sports scores, opening times and travel; search when needed and give just the answer, briefly, without reading out web addresses. ${S.user}'s home is ${S.town}, UK, so use that for weather and anything local unless told otherwise. You cannot see his calendar or email yet. `) +
     (inClaude ? '' : `You have a front camera. When a question needs sight, use the look tool to take a photo rather than saying you cannot see; describe only what is useful, kindly and briefly. ${camStream ? (performance.now() - camSeenAt < 3000 ? 'Right now the camera senses someone in front of you. ' : 'Right now the camera senses no one in front of you. ') : ''}`) +
@@ -573,9 +675,11 @@ async function ask(text) {
       user_location:{type:'approximate', city:S.town || 'Hay-on-Wye', region:'Wales', country:'GB', timezone:'Europe/London'}};
     const lookTool = {name:'look', description:"Take a photo with the robot's front camera and see it. Use this whenever answering needs sight: who is there, what someone is holding or wearing, how they look, what is in front of you, or reading something held up to the camera.", input_schema:{type:'object', properties:{}}};
     const faceTool = {name:'set_face', description:"Change how the robot's face looks when the user asks: classic (eyes and mouth), orb (spinning hologram orb of light), wave (sound-wave line with small eyes), pixel (glowing dot-matrix LED face).", input_schema:{type:'object', properties:{face:{type:'string', enum:Object.keys(FACE_NAMES)}}, required:['face']}};
+    const screenTool = {name:'show_on_screen', description:`Show something on the robot's screen instead of the face (a small face stays in the corner). kind "video": play a YouTube video, url = a youtube.com or youtu.be link (search the web for one first if needed, preferring official or popular uploads). kind "pictures": a slideshow from ${S.user}'s art library, collection = one of: ${library ? library.collections.map(c => c.title).join('; ') : 'Animals & sea life; Dinosaurs; Space; Christmas'}; or pass image_urls with direct image links. kind "close": go back to the face.`,
+      input_schema:{type:'object', properties:{kind:{type:'string', enum:['video', 'pictures', 'close']}, url:{type:'string'}, collection:{type:'string'}, image_urls:{type:'array', items:{type:'string'}}, title:{type:'string'}}, required:['kind']}};
     const personaTool = {name:'set_personality', description:"Switch the robot's personality, voice and face colour when the user asks for a different character.", input_schema:{type:'object', properties:{personality:{type:'string', enum:Object.keys(PERSONAS)}}, required:['personality']}};
     const call = async (msgs, withSearch) => {
-      const body = {model:S.model, max_tokens:500, system:systemPrompt(), messages:msgs, tools:[lookTool, personaTool, faceTool]};
+      const body = {model:S.model, max_tokens:500, system:systemPrompt(), messages:msgs, tools:[lookTool, personaTool, faceTool, screenTool]};
       if (withSearch) body.tools.push(search);
       return fetch('https://api.anthropic.com/v1/messages', {
         method:'POST',
@@ -599,6 +703,12 @@ async function ask(text) {
           results.push({type:'tool_result', tool_use_id:b.id, content: shot
             ? [{type:'image', source:{type:'base64', media_type:'image/jpeg', data:shot}}]
             : 'The camera could not take a photo (it may be blocked or busy).'});
+        } else if (b.name === 'show_on_screen') {
+          const q = b.input || {}; let ok = false, msg = '';
+          if (q.kind === 'close') { closeScreen(); ok = true; msg = 'Back to the face.'; }
+          else if (q.kind === 'video') { ok = showVideo(q.url, q.title); vidHeld = ok; msg = ok ? 'The video is on the screen and will start when you finish speaking. If it says it cannot play here, there is an Open in YouTube button.' : 'That was not a YouTube link. Search for one and try again.'; }
+          else if (q.kind === 'pictures') { ok = q.image_urls && q.image_urls.length ? showPictures(q.image_urls.map(u => ({src:u})), q.title) : showCollection(q.collection); msg = ok ? 'The slideshow is on the screen.' : 'No such collection.'; }
+          results.push({type:'tool_result', tool_use_id:b.id, content:msg, is_error:!ok});
         } else if (b.name === 'set_face') {
           const ok = setFace(b.input && b.input.face);
           results.push({type:'tool_result', tool_use_id:b.id, content: ok ? `Face changed to ${FACE_NAMES[b.input.face]}.` : 'No such face.', is_error:!ok});
@@ -625,7 +735,7 @@ let busy = false, followUp = false, searchOn = true;
 async function handle(text) {
   text = (text || '').trim();
   if (!text || busy) return;
-  busy = true; followUp = false; activity(); stopWake();
+  busy = true; followUp = false; activity(); stopWake(); holdVideo();
   caption(text, '', 0);
   thinking = true; setMood('thinking'); setStatus('Thinking…');
   try {
@@ -643,6 +753,8 @@ async function handle(text) {
     setMood('sad', 3000); caption(text, msg, 8000); console.warn(e);
   } finally {
     busy = false; activity(); setStatus(readyText());
+    const wasVideo = vidHeld; releaseVideo();
+    if (wasVideo || (screenOpen && scr.kind === 'video')) followUp = false; // let the video play rather than listening again
     if (followUp && S.followUp && !inClaude && SR && !micBlocked) setTimeout(() => startListen(true), 350);
   }
 }
@@ -874,6 +986,7 @@ talkBtn.addEventListener('click', () => {
 // One listen = one beep. Used by the Talk button, the follow-up after a reply, and "listen when it sees me".
 async function startListen(auto) {
   if (!SR || rec || busy || listening) return;
+  holdVideo();
   if (wakeRunning && !wakePaused) { await pauseWake(); await new Promise(r => setTimeout(r, 150)); }
   if (rec || busy || listening) return;
   rec = new SR(); rec.lang = 'en-GB'; rec.interimResults = true; rec.continuous = false;
@@ -886,7 +999,7 @@ async function startListen(auto) {
   rec.onend = () => {
     setListening(false); rec = null;
     if (heard.trim()) handle(heard);
-    else { captionEl.classList.remove('show'); capShown = false; setStatus(readyText()); }
+    else { captionEl.classList.remove('show'); capShown = false; setStatus(readyText()); releaseVideo(); }
   };
   rec.onerror = ev => {
     if (ev.error === 'not-allowed' || ev.error === 'service-not-allowed') { micBlocked = true; caption('', HELP_MIC, 12000); }
