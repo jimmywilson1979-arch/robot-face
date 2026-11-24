@@ -60,6 +60,8 @@
   #scrTop{position:absolute;top:10px;right:10px;display:flex;gap:8px;z-index:3;transition:opacity .5s}
   #scrTop.hide{opacity:0;pointer-events:none}
   #scrTop .btn{padding:8px 12px;font-size:14px;background:rgba(20,22,28,.85)}
+  #scrSound{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);z-index:3;display:none;font-size:20px;padding:16px 22px;background:rgba(20,22,28,.9)}
+  #scrMsg{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);z-index:2;color:#cfd6e4;font:500 18px Barlow,sans-serif;text-align:center;max-width:80%}
   #scrName{position:absolute;left:50%;bottom:22px;transform:translateX(-50%);font:600 18px 'Barlow Condensed',sans-serif;letter-spacing:.04em;color:#fff;text-shadow:0 2px 8px #000;opacity:.85;z-index:3}
   #mini{position:absolute;right:12px;bottom:12px;width:min(22vmin,150px);aspect-ratio:1;border-radius:18px;background:#000;border:1px solid #222;box-shadow:0 4px 18px #000a;z-index:3}
   #status,#caption,#typebox,#bar{z-index:4}
@@ -69,7 +71,7 @@
 </head>
 <body>
 <canvas id="face" aria-label="Robot face"></canvas>
-<div id="screen"><div id="scrContent"></div><div id="scrName"></div>
+<div id="screen"><div id="scrMsg"></div><div id="scrContent"></div><div id="scrName"></div><button class="btn" id="scrSound" type="button">🔊 Tap for sound</button>
   <div id="scrTop"><button class="btn" id="scrYT" type="button" style="display:none">Open in YouTube</button><button class="btn" id="scrClose" type="button">✕ Back to face</button></div>
   <canvas id="mini" width="300" height="300" aria-label="Robot face"></canvas></div>
 <div id="status">Starting…</div>
@@ -90,6 +92,8 @@
     <h2>Show on the screen</h2>
     <div class="row"><label for="ytLink">A YouTube video (paste a link)</label>
       <div style="display:flex;gap:8px"><input id="ytLink" type="text" placeholder="https://youtu.be/…" style="flex:1;background:var(--card);border:1px solid var(--line);color:var(--ink);border-radius:10px;padding:10px 12px;font:15px Barlow,sans-serif"><button class="btn" id="ytGo" type="button">Play</button></div></div>
+    <div class="row"><label for="imgQ">Pictures from the web</label>
+      <div style="display:flex;gap:8px"><input id="imgQ" type="text" placeholder="e.g. snow leopard" style="flex:1;background:var(--card);border:1px solid var(--line);color:var(--ink);border-radius:10px;padding:10px 12px;font:15px Barlow,sans-serif"><button class="btn" id="imgGo" type="button">Search</button></div></div>
     <div class="row"><label>Picture slideshow from the art library</label><div class="grid" id="libGrid"><p class="note">Loading…</p></div></div>
     <p class="note">Or just ask: "show me a video of puppies", "put the dinosaur pictures on", "back to your face".</p>
     <div class="actions"><span></span><button class="btn" id="showClose" type="button">Close</button></div>
@@ -359,19 +363,89 @@ fetch(LIB + 'library.json').then(r => r.json()).then(j => { library = j; }).catc
 const ytId = u => { u = String(u || '').trim(); if (/^[\w-]{11}$/.test(u)) return u; const m = u.match(/(?:v=|youtu\.be\/|shorts\/|embed\/|live\/)([\w-]{11})/); return m ? m[1] : ''; };
 function openScreen() { screenOpen = true; $('screen').classList.add('show'); scrUI(); }
 function closeScreen() {
-  screenOpen = false; clearInterval(slideTimer); $('screen').classList.remove('show'); $('scrContent').innerHTML = ''; $('scrName').textContent = '';
+  screenOpen = false; clearInterval(slideTimer); clearTimeout(ytReadyTimer); clearTimeout(ytStartTimer);
+  try { if (ytPlayer) ytPlayer.destroy(); } catch (e) { } ytPlayer = null; scrMsg(''); $('scrSound').style.display = 'none';
+  $('screen').classList.remove('show'); $('scrContent').innerHTML = ''; $('scrName').textContent = '';
   scr = {kind:'', id:'', paused:false}; activity(); setStatus(readyText());
 }
 let scrTopTimer = 0;
 function scrUI() { $('scrTop').classList.remove('hide'); clearTimeout(scrTopTimer); scrTopTimer = setTimeout(() => $('scrTop').classList.add('hide'), 5000); }
-function showVideo(u, title) {
-  const id = ytId(u); if (!id) return false;
-  clearInterval(slideTimer);
-  $('scrContent').innerHTML = `<iframe id="ytf" allow="autoplay; encrypted-media; picture-in-picture; fullscreen" allowfullscreen src="https://www.youtube-nocookie.com/embed/${id}?autoplay=1&playsinline=1&rel=0&modestbranding=1&enablejsapi=1&origin=${encodeURIComponent(location.origin)}"></iframe>`;
-  $('scrName').textContent = ''; $('scrYT').style.display = ''; $('scrYT').onclick = () => window.open('https://www.youtube.com/watch?v=' + id, '_blank');
-  scr = {kind:'video', id, paused:false, title:title || ''}; openScreen(); return true;
+// YouTube, using its own player so it can start by itself and tell us if a video won't play here
+let ytApi = null, ytPlayer = null, ytQueue = [], ytReadyTimer = 0, ytStartTimer = 0;
+function loadYT() {
+  if (!ytApi) ytApi = new Promise((res, rej) => {
+    if (window.YT && window.YT.Player) return res(window.YT);
+    window.onYouTubeIframeAPIReady = () => res(window.YT);
+    const sc = document.createElement('script'); sc.src = 'https://www.youtube.com/iframe_api'; sc.onerror = () => { ytApi = null; rej(new Error('yt')); };
+    document.head.append(sc); setTimeout(() => rej(new Error('yt timeout')), 12000);
+  });
+  return ytApi;
 }
-function ytCmd(func) { const f = $('ytf'); if (f && f.contentWindow) f.contentWindow.postMessage(JSON.stringify({event:'command', func, args:[]}), '*'); }
+loadYT().catch(() => {});
+function scrMsg(t) { $('scrMsg').textContent = t || ''; }
+function showVideo(list, title) {
+  const ids = (Array.isArray(list) ? list : [list]).map(ytId).filter(Boolean);
+  if (!ids.length) return false;
+  clearInterval(slideTimer); ytQueue = ids.slice(1);
+  $('scrContent').innerHTML = '<div id="ytp"></div>'; $('scrName').textContent = ''; $('scrSound').style.display = 'none';
+  scr = {kind:'video', id:ids[0], paused:false, title:title || ''}; openScreen(); setYTButton(ids[0]);
+  scrMsg('Loading the video…');
+  startYT(ids[0]);
+  return true;
+}
+function setYTButton(id) { $('scrYT').style.display = ''; $('scrYT').onclick = () => window.open('https://www.youtube.com/watch?v=' + id, '_blank'); }
+async function startYT(id) {
+  clearTimeout(ytReadyTimer); clearTimeout(ytStartTimer);
+  try { if (ytPlayer) { ytPlayer.destroy(); ytPlayer = null; } } catch (e) { }
+  if (!$('ytp')) $('scrContent').innerHTML = '<div id="ytp"></div>';
+  ytReadyTimer = setTimeout(() => { if (scr.kind === 'video' && scr.id === id) scrMsg("YouTube didn't load. This network may be blocking it. Tap Open in YouTube instead."); }, 10000);
+  let YT; try { YT = await loadYT(); } catch (e) { scrMsg("YouTube didn't load. This network may be blocking it. Tap Open in YouTube instead."); return; }
+  if (scr.kind !== 'video' || scr.id !== id) return;
+  ytPlayer = new YT.Player('ytp', {width:'100%', height:'100%', videoId:id, host:'https://www.youtube.com',
+    playerVars:{autoplay:vidHeld ? 0 : 1, playsinline:1, rel:0, modestbranding:1, origin:location.origin},
+    events:{
+      onReady: e => { clearTimeout(ytReadyTimer); scrMsg(''); if (!vidHeld) playYT(); },
+      onError: e => { // 2, 5, 100, 101, 150 = can't be played here (removed, private or blocked from other sites)
+        clearTimeout(ytReadyTimer);
+        console.warn('YouTube error', e.data, scr.id);
+        const next = ytQueue.shift();
+        if (next) { scr.id = next; setYTButton(next); scrMsg('That one won\'t play here, trying another…'); $('scrContent').innerHTML = '<div id="ytp"></div>'; startYT(next); }
+        else scrMsg("This video won't play inside the robot. Tap Open in YouTube, or ask me for a different one.");
+      },
+      onStateChange: e => { if (e.data === 1) { scrMsg(''); clearTimeout(ytStartTimer); } }
+    }});
+}
+function playYT() {
+  if (!ytPlayer || !ytPlayer.playVideo) return;
+  try { ytPlayer.unMute(); ytPlayer.playVideo(); } catch (e) { }
+  clearTimeout(ytStartTimer);
+  ytStartTimer = setTimeout(() => { // the browser stopped it starting with sound: start it quietly and offer sound
+    try {
+      const st = ytPlayer.getPlayerState();
+      if (st !== 1 && st !== 3) { ytPlayer.mute(); ytPlayer.playVideo(); $('scrSound').style.display = ''; }
+    } catch (e) { }
+  }, 2500);
+}
+$('scrSound').addEventListener('click', () => { try { ytPlayer.unMute(); ytPlayer.setVolume(100); ytPlayer.playVideo(); } catch (e) { } $('scrSound').style.display = 'none'; });
+function ytCmd(func) {
+  if (!ytPlayer) return;
+  try { if (func === 'pauseVideo') ytPlayer.pauseVideo(); else playYT(); } catch (e) { }
+}
+// pictures from the web: Wikimedia Commons first (free, no key), Openverse as a backup
+async function searchImages(q) {
+  const out = [];
+  try {
+    const u = 'https://commons.wikimedia.org/w/api.php?action=query&format=json&origin=*&generator=search&gsrnamespace=6&gsrlimit=24&prop=imageinfo&iiprop=url|mime&iiurlwidth=1600&gsrsearch=' + encodeURIComponent(q + ' filetype:bitmap');
+    const j = await (await fetch(u, {signal:AbortSignal.timeout(8000)})).json();
+    const pages = Object.values((j.query && j.query.pages) || {}).sort((a, b) => (a.index || 0) - (b.index || 0));
+    for (const p of pages) { const ii = p.imageinfo && p.imageinfo[0]; if (ii && /jpeg|png|webp/.test(ii.mime)) out.push({src:ii.thumburl || ii.url, name:p.title.replace(/^File:/, '').replace(/\.[a-z]+$/i, '').replace(/[_-]+/g, ' ').slice(0, 70)}); }
+  } catch (e) { console.warn('commons', e); }
+  if (out.length < 3) try {
+    const j = await (await fetch('https://api.openverse.org/v1/images/?page_size=12&mature=false&q=' + encodeURIComponent(q), {signal:AbortSignal.timeout(6000)})).json();
+    for (const r of j.results || []) out.push({src:r.url, name:(r.title || '').slice(0, 70)});
+  } catch (e) { console.warn('openverse', e); }
+  return out.slice(0, 12);
+}
 function findCollection(name) {
   if (!library) return null;
   const n = String(name || '').toLowerCase().trim(), cols = library.collections || [];
@@ -379,6 +453,7 @@ function findCollection(name) {
 }
 function showPictures(pics, title) {
   pics = (pics || []).filter(p => p && p.src); if (!pics.length) return false;
+  try { if (ytPlayer) ytPlayer.destroy(); } catch (e) { } ytPlayer = null; scrMsg(''); $('scrSound').style.display = 'none';
   $('scrYT').style.display = 'none';
   $('scrContent').innerHTML = ''; let i = -1;
   const step = () => {
@@ -398,9 +473,9 @@ function showCollection(name) {
   return showPictures(pics, c.title);
 }
 // the video pauses while you talk to the robot, then carries on
-let vidHeld = false;
+let vidHeld = false, vidPausedByAsk = false;
 function holdVideo() { if (screenOpen && scr.kind === 'video' && !vidHeld) { ytCmd('pauseVideo'); vidHeld = true; } }
-function releaseVideo() { if (vidHeld) { vidHeld = false; if (screenOpen && scr.kind === 'video') ytCmd('playVideo'); } }
+function releaseVideo() { if (vidHeld) { vidHeld = false; if (screenOpen && scr.kind === 'video' && !vidPausedByAsk) playYT(); } }
 $('scrClose').addEventListener('click', closeScreen);
 $('screen').addEventListener('pointerdown', e => { if (e.target.closest('#scrTop')) return; scrUI(); showBar(); activity(); });
 $('mini').addEventListener('click', () => { showBar(); });
@@ -422,7 +497,13 @@ $('showBtn').addEventListener('click', openShowPanel);
 $('showClose').addEventListener('click', () => { $('showPanel').style.display = 'none'; });
 $('showPanel').addEventListener('click', e => { if (e.target.id === 'showPanel') $('showPanel').style.display = 'none'; });
 $('libGrid').addEventListener('click', e => { const b = e.target.closest('[data-col]'); if (b) { $('showPanel').style.display = 'none'; showCollection(b.dataset.col); } });
-$('ytGo').addEventListener('click', () => { if (showVideo($('ytLink').value)) { $('showPanel').style.display = 'none'; $('ytLink').value = ''; } else $('ytLink').placeholder = 'That is not a YouTube link'; });
+$('imgGo').addEventListener('click', async () => {
+  const q = $('imgQ').value.trim(); if (!q) return;
+  $('imgGo').textContent = 'Searching…';
+  const pics = await searchImages(q); $('imgGo').textContent = 'Search';
+  if (showPictures(pics, q)) { $('showPanel').style.display = 'none'; $('imgQ').value = ''; } else { $('imgQ').value = ''; $('imgQ').placeholder = 'Nothing found for ' + q; }
+});
+$('ytGo').addEventListener('click', () => { vidHeld = false; if (showVideo($('ytLink').value)) { $('showPanel').style.display = 'none'; $('ytLink').value = ''; } else $('ytLink').placeholder = 'That is not a YouTube link'; });
 
 // ---------- face styles ----------
 const FACE_NAMES = {classic:'Classic eyes', orb:'Hologram orb', wave:'Sound wave', pixel:'Pixel LED'};
@@ -653,7 +734,7 @@ function systemPrompt() {
   const now = new Date().toLocaleString('en-GB', {weekday:'long', day:'numeric', month:'long', year:'numeric', hour:'2-digit', minute:'2-digit'});
   return `You are Claude, speaking as the voice of ${S.user}'s home robot: a small desk robot whose face is an old phone screen. ` +
     persona().prompt() +
-    (inClaude ? '' : `If ${S.user} asks you to change personality or voice (for example "talk like a pirate", "be Rocky", "back to normal"), use the set_personality tool, then reply in the new character. If asked to show, play or put on a video, pictures or a slideshow, use show_on_screen (for videos, find a YouTube link with web search first), then say one short line; "back to your face" or "close it" closes it. If asked to change your face or look, use set_face (classic eyes, hologram orb, sound wave, or pixel LED). Personalities: ${Object.keys(PERSONAS).filter(k => k !== 'custom' || S.cDesc).map(k => `${k} (${personaName(k)})`).join(', ')}; "normal" means butler. `) +
+    (inClaude ? '' : `If ${S.user} asks you to change personality or voice (for example "talk like a pirate", "be Rocky", "back to normal"), use the set_personality tool, then reply in the new character. If asked to show, play or put on a video, pictures or a slideshow, use show_on_screen (for videos, find 2 or 3 YouTube links with web search first; for a picture of something from the web, use image_search), then say one short line; "back to your face" or "close it" closes it. If asked to change your face or look, use set_face (classic eyes, hologram orb, sound wave, or pixel LED). Personalities: ${Object.keys(PERSONAS).filter(k => k !== 'custom' || S.cDesc).map(k => `${k} (${personaName(k)})`).join(', ')}; "normal" means butler. `) +
     `Your words are spoken aloud, so answer in one to three short sentences of plain speech: no lists, no markdown, no emoji. ` +
     (inClaude ? `If asked for live information you cannot see (weather, news, scores), say briefly that you are not connected to that here. ` : `You can search the web for live information such as weather, news, sports scores, opening times and travel; search when needed and give just the answer, briefly, without reading out web addresses. ${S.user}'s home is ${S.town}, UK, so use that for weather and anything local unless told otherwise. You cannot see his calendar or email yet. `) +
     (inClaude ? '' : `You have a front camera. When a question needs sight, use the look tool to take a photo rather than saying you cannot see; describe only what is useful, kindly and briefly. ${camStream ? (performance.now() - camSeenAt < 3000 ? 'Right now the camera senses someone in front of you. ' : 'Right now the camera senses no one in front of you. ') : ''}`) +
@@ -675,8 +756,8 @@ async function ask(text) {
       user_location:{type:'approximate', city:S.town || 'Hay-on-Wye', region:'Wales', country:'GB', timezone:'Europe/London'}};
     const lookTool = {name:'look', description:"Take a photo with the robot's front camera and see it. Use this whenever answering needs sight: who is there, what someone is holding or wearing, how they look, what is in front of you, or reading something held up to the camera.", input_schema:{type:'object', properties:{}}};
     const faceTool = {name:'set_face', description:"Change how the robot's face looks when the user asks: classic (eyes and mouth), orb (spinning hologram orb of light), wave (sound-wave line with small eyes), pixel (glowing dot-matrix LED face).", input_schema:{type:'object', properties:{face:{type:'string', enum:Object.keys(FACE_NAMES)}}, required:['face']}};
-    const screenTool = {name:'show_on_screen', description:`Show something on the robot's screen instead of the face (a small face stays in the corner). kind "video": play a YouTube video, url = a youtube.com or youtu.be link (search the web for one first if needed, preferring official or popular uploads). kind "pictures": a slideshow from ${S.user}'s art library, collection = one of: ${library ? library.collections.map(c => c.title).join('; ') : 'Animals & sea life; Dinosaurs; Space; Christmas'}; or pass image_urls with direct image links. kind "close": go back to the face.`,
-      input_schema:{type:'object', properties:{kind:{type:'string', enum:['video', 'pictures', 'close']}, url:{type:'string'}, collection:{type:'string'}, image_urls:{type:'array', items:{type:'string'}}, title:{type:'string'}}, required:['kind']}};
+    const screenTool = {name:'show_on_screen', description:`Show something on the robot's screen instead of the face (a small face stays in the corner). kind "video": play YouTube. Search the web first and pass 2 or 3 different youtube.com or youtu.be links in urls (best first; official or popular uploads, as some owners block playing outside YouTube, and the next is tried automatically). kind "pictures": a slideshow from ${S.user}'s art library, collection = one of: ${library ? library.collections.map(c => c.title).join('; ') : 'Animals & sea life; Dinosaurs; Space; Christmas'}. kind "image_search": pictures of anything from the web, query = a few plain words (e.g. "snow leopard", "Eiffel Tower at night"). kind "pause" / "resume": pause or carry on the video. kind "close": go back to the face.`,
+      input_schema:{type:'object', properties:{kind:{type:'string', enum:['video', 'pictures', 'image_search', 'pause', 'resume', 'close']}, urls:{type:'array', items:{type:'string'}}, url:{type:'string'}, collection:{type:'string'}, query:{type:'string'}, title:{type:'string'}}, required:['kind']}};
     const personaTool = {name:'set_personality', description:"Switch the robot's personality, voice and face colour when the user asks for a different character.", input_schema:{type:'object', properties:{personality:{type:'string', enum:Object.keys(PERSONAS)}}, required:['personality']}};
     const call = async (msgs, withSearch) => {
       const body = {model:S.model, max_tokens:500, system:systemPrompt(), messages:msgs, tools:[lookTool, personaTool, faceTool, screenTool]};
@@ -706,8 +787,11 @@ async function ask(text) {
         } else if (b.name === 'show_on_screen') {
           const q = b.input || {}; let ok = false, msg = '';
           if (q.kind === 'close') { closeScreen(); ok = true; msg = 'Back to the face.'; }
-          else if (q.kind === 'video') { ok = showVideo(q.url, q.title); vidHeld = ok; msg = ok ? 'The video is on the screen and will start when you finish speaking. If it says it cannot play here, there is an Open in YouTube button.' : 'That was not a YouTube link. Search for one and try again.'; }
-          else if (q.kind === 'pictures') { ok = q.image_urls && q.image_urls.length ? showPictures(q.image_urls.map(u => ({src:u})), q.title) : showCollection(q.collection); msg = ok ? 'The slideshow is on the screen.' : 'No such collection.'; }
+          else if (q.kind === 'pause') { ok = scr.kind === 'video'; if (ok) { vidHeld = false; ytCmd('pauseVideo'); vidPausedByAsk = true; } msg = ok ? 'Paused.' : 'No video is on.'; }
+          else if (q.kind === 'resume') { ok = scr.kind === 'video'; if (ok) { vidPausedByAsk = false; vidHeld = true; } msg = ok ? 'It will carry on when you finish speaking.' : 'No video is on.'; }
+          else if (q.kind === 'video') { vidHeld = true; vidPausedByAsk = false; ok = showVideo(q.urls && q.urls.length ? q.urls : [q.url], q.title); if (!ok) vidHeld = false; msg = ok ? 'The video is on the screen and will start when you finish speaking.' : 'Those were not YouTube links. Search for one and try again.'; }
+          else if (q.kind === 'image_search') { const pics = await searchImages(q.query || ''); ok = showPictures(pics, q.query); msg = ok ? `Showing ${pics.length} pictures of ${q.query}, changing every 8 seconds.` : `I could not find pictures of ${q.query}.`; }
+          else if (q.kind === 'pictures') { ok = showCollection(q.collection); msg = ok ? 'The slideshow is on the screen.' : 'No such collection.'; }
           results.push({type:'tool_result', tool_use_id:b.id, content:msg, is_error:!ok});
         } else if (b.name === 'set_face') {
           const ok = setFace(b.input && b.input.face);
